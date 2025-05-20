@@ -1,19 +1,22 @@
 const std = @import("std");
 const builtins = @import("builtins.zig");
 const AstNode = @import("parser.zig").AstNode;
-const Machine = @import("machine.zig").Machine;
+const machine = @import("machine.zig");
+const Machine = machine.Machine;
+const Context = machine.Context;
 
 const EnumField = std.builtin.Type.EnumField;
 
 pub const BuiltinError = error{
+    InvalidParameterCount,
     InvalidArgument,
     InvalidType,
     OutOfMemory,
-    VariableAlreadyDefined,
-    VariableNotDefined,
+    SymbolAlreadyDefined,
+    SymbolUndefined,
 };
 
-pub const BuiltinFn = *const fn (machine: *Machine, []const *AstNode) BuiltinError!*AstNode;
+pub const BuiltinFn = *const fn (machine: *Machine, ctx: *Context, []const *AstNode) BuiltinError!*AstNode;
 
 pub const Builtin = v: {
     const decls = std.meta.declarations(builtins);
@@ -47,8 +50,8 @@ pub const builtin_map = v: {
         if (@hasDecl(builtins, @tagName(tag))) {
             const field = @field(builtins, f.name);
             arr[@intFromEnum(tag)] = switch (@typeInfo(@TypeOf(field))) {
-                .@"fn" => &AstNode{ .value = .{ .function = @field(builtins, f.name) }, .context = null },
-                .void => &AstNode{ .value = .{ .symbol = f.name }, .context = null },
+                .@"fn" => &AstNode{ .value = .{ .function = @field(builtins, f.name) } },
+                .void => &AstNode{ .value = .{ .symbol = f.name } },
                 else => @compileError("Unsupported type for intrinsic named " ++ f.name),
             };
         } else @compileError("All public decls should have a generated Intrinsic entry");

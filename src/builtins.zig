@@ -2,18 +2,18 @@ const parser = @import("parser.zig");
 const std = @import("std");
 const machine = @import("machine.zig");
 const Machine = machine.Machine;
+const Context = machine.Context;
 const BuiltinError = @import("builtin.zig").BuiltinError;
 
 pub const nil: void = {};
 
-pub fn @"+"(self: *Machine, args: []const *parser.AstNode) BuiltinError!*parser.AstNode {
+pub fn @"+"(self: *Machine, ctx: *Context, args: []const *parser.AstNode) BuiltinError!*parser.AstNode {
     if (args.len == 0) {
         return error.InvalidArgument;
     }
     var sum: f64 = 0;
     for (args) |arg| {
-        std.debug.print("arg: {any}\n", .{arg.value});
-        const output = try self.eval(arg);
+        const output = try self.eval(ctx, arg);
         switch (output.value) {
             .number => |num| {
                 sum += num;
@@ -27,13 +27,13 @@ pub fn @"+"(self: *Machine, args: []const *parser.AstNode) BuiltinError!*parser.
     return try self.make_node(.{ .number = sum });
 }
 
-pub fn @"-"(self: *Machine, args: []const *parser.AstNode) BuiltinError!*parser.AstNode {
+pub fn @"-"(self: *Machine, ctx: *Context, args: []const *parser.AstNode) BuiltinError!*parser.AstNode {
     if (args.len == 0) {
         return error.InvalidArgument;
     }
     var result: f64 = 0;
     for (args, 0..) |arg, i| {
-        const output = try self.eval(arg);
+        const output = try self.eval(ctx, arg);
         switch (output.value) {
             .number => |num| {
                 if (i == 0 and args.len > 1) {
@@ -50,13 +50,13 @@ pub fn @"-"(self: *Machine, args: []const *parser.AstNode) BuiltinError!*parser.
     return try self.make_node(.{ .number = result });
 }
 
-pub fn @"*"(self: *Machine, args: []const *parser.AstNode) BuiltinError!*parser.AstNode {
+pub fn @"*"(self: *Machine, ctx: *Context, args: []const *parser.AstNode) BuiltinError!*parser.AstNode {
     if (args.len == 0) {
         return error.InvalidArgument;
     }
     var product: f64 = 1;
     for (args) |arg| {
-        const output = try self.eval(arg);
+        const output = try self.eval(ctx, arg);
         switch (output.value) {
             .number => |num| {
                 product *= num;
@@ -69,13 +69,13 @@ pub fn @"*"(self: *Machine, args: []const *parser.AstNode) BuiltinError!*parser.
     return try self.make_node(.{ .number = product });
 }
 
-pub fn @"/"(self: *Machine, args: []const *parser.AstNode) BuiltinError!*parser.AstNode {
+pub fn @"/"(self: *Machine, ctx: *Context, args: []const *parser.AstNode) BuiltinError!*parser.AstNode {
     if (args.len == 0) {
         return error.InvalidArgument;
     }
     var result: f64 = 1;
     for (args, 0..) |arg, index| {
-        const output = try self.eval(arg);
+        const output = try self.eval(ctx, arg);
         switch (output.value) {
             .number => |num| {
                 if (index == 0 and args.len > 1) {
@@ -91,13 +91,13 @@ pub fn @"/"(self: *Machine, args: []const *parser.AstNode) BuiltinError!*parser.
     }
     return try self.make_node(.{ .number = result });
 }
-pub fn @">"(self: *Machine, args: []const *parser.AstNode) BuiltinError!*parser.AstNode {
+pub fn @">"(self: *Machine, ctx: *Context, args: []const *parser.AstNode) BuiltinError!*parser.AstNode {
     if (args.len == 0) {
         return error.InvalidArgument;
     }
     var result: bool = true;
     for (args) |arg| {
-        const output = try self.eval(arg);
+        const output = try self.eval(ctx, arg);
         switch (output.value) {
             .number => |num| {
                 result = result and num > 0;
@@ -110,13 +110,13 @@ pub fn @">"(self: *Machine, args: []const *parser.AstNode) BuiltinError!*parser.
     return try self.make_node(.{ .boolean = result });
 }
 
-pub fn @">="(self: *Machine, args: []const *parser.AstNode) BuiltinError!*parser.AstNode {
+pub fn @">="(self: *Machine, ctx: *Context, args: []const *parser.AstNode) BuiltinError!*parser.AstNode {
     if (args.len == 0) {
         return error.InvalidArgument;
     }
     var result: bool = true;
     for (args) |arg| {
-        const output = try self.eval(arg);
+        const output = try self.eval(ctx, arg);
         switch (output.value) {
             .number => |num| {
                 result = result and num >= 0;
@@ -129,13 +129,13 @@ pub fn @">="(self: *Machine, args: []const *parser.AstNode) BuiltinError!*parser
     return try self.make_node(.{ .boolean = result });
 }
 
-pub fn @"<"(self: *Machine, args: []const *parser.AstNode) BuiltinError!*parser.AstNode {
+pub fn @"<"(self: *Machine, ctx: *Context, args: []const *parser.AstNode) BuiltinError!*parser.AstNode {
     if (args.len == 0) {
         return error.InvalidArgument;
     }
     var result: bool = true;
     for (args) |arg| {
-        const output = try self.eval(arg);
+        const output = try self.eval(ctx, arg);
         switch (output.value) {
             .number => |num| {
                 result = result and num < 0;
@@ -148,13 +148,13 @@ pub fn @"<"(self: *Machine, args: []const *parser.AstNode) BuiltinError!*parser.
     return try self.make_node(.{ .boolean = result });
 }
 
-pub fn @"<="(self: *Machine, args: []const *parser.AstNode) BuiltinError!*parser.AstNode {
+pub fn @"<="(self: *Machine, ctx: *Context, args: []const *parser.AstNode) BuiltinError!*parser.AstNode {
     if (args.len == 0) {
         return error.InvalidArgument;
     }
     var result: bool = true;
     for (args) |arg| {
-        const output = try self.eval(arg);
+        const output = try self.eval(ctx, arg);
         switch (output.value) {
             .number => |num| {
                 result = result and num <= 0;
@@ -167,13 +167,13 @@ pub fn @"<="(self: *Machine, args: []const *parser.AstNode) BuiltinError!*parser
     return try self.make_node(.{ .boolean = result });
 }
 
-pub fn @"="(self: *Machine, args: []const *parser.AstNode) BuiltinError!*parser.AstNode {
+pub fn @"="(self: *Machine, ctx: *Context, args: []const *parser.AstNode) BuiltinError!*parser.AstNode {
     if (args.len == 0) {
         return error.InvalidArgument;
     }
     var result: bool = false;
     for (args) |arg| {
-        const output = try self.eval(arg);
+        const output = try self.eval(ctx, arg);
         switch (output.value) {
             .number => |num| {
                 result = result and num == 0;
@@ -188,42 +188,43 @@ pub fn @"="(self: *Machine, args: []const *parser.AstNode) BuiltinError!*parser.
 
 pub fn defvar(
     self: *Machine,
+    ctx: *Context,
     args: []const *parser.AstNode,
 ) BuiltinError!*parser.AstNode {
     if (args.len != 2) {
         return error.InvalidArgument;
     }
     const name = args[0].value.symbol;
-    const value = try self.eval(args[1]);
-    const node = try self.make_node(.{ .symbol = name });
-    node.* = value.*;
-    try self.global_vars.put(name, node);
+    if (ctx.get(name) != null) {
+        return error.SymbolAlreadyDefined;
+    }
+    const value = try self.eval(ctx, args[1]);
+    try ctx.push(name, value);
 
-    return node;
+    return value;
 }
 
-pub fn let(self: *Machine, args: []const *parser.AstNode) BuiltinError!*parser.AstNode {
+pub fn let(self: *Machine, ctx: *Context, args: []const *parser.AstNode) BuiltinError!*parser.AstNode {
     if (args.len != 2) {
-        return error.InvalidArgument;
+        return error.InvalidParameterCount;
     }
 
-    args[1].context = try parser.Context.init(self.allocator);
-
+    const new_ctx = try ctx.clone();
+    defer new_ctx.deinit();
     for (args[0].value.list.items) |arg| {
         // arg will be lists in the format of: (a 10) or (a '10) or (a 10) or (a b)
         if (arg.value.list.items.len != 2) {
-            return error.InvalidArgument;
+            return error.InvalidParameterCount;
         }
         const items = arg.value.list.items;
         const name = items[0].value.symbol;
-        if (self.global_vars.get(name) != null or args[1].context.?.get(name) != null) {
-            return error.VariableAlreadyDefined;
+        if (new_ctx.get(name) != null) {
+            return error.SymbolAlreadyDefined;
         }
-        const value = try self.eval(items[1]);
-        args[1].context.?.push(name, value);
+        const value = try self.eval(new_ctx, items[1]);
+        try new_ctx.push(name, value);
     }
 
-    const output = try self.eval(args[1]);
-    args[1].context.?.deinit();
+    const output = try self.eval(new_ctx, args[1]);
     return output;
 }

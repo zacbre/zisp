@@ -5,18 +5,52 @@ const testing = std.testing;
 const builtins = @import("builtins.zig");
 const builtin = @import("builtin.zig");
 
+pub const Context = struct {
+    vars: std.StringHashMap(*parser.AstNode),
+    allocator: std.mem.Allocator,
+
+    pub fn init(allocator: std.mem.Allocator) !*Context {
+        const context = try allocator.create(Context);
+        context.vars = std.StringHashMap(*parser.AstNode).init(allocator);
+        context.allocator = allocator;
+        return context;
+    }
+
+    pub fn deinit(self: *Context) void {
+        self.vars.deinit();
+        self.allocator.destroy(self);
+    }
+
+    pub fn clone(self: *Context) !*Context {
+        const new_context = try self.allocator.create(Context);
+        new_context.vars = try self.vars.clone();
+        new_context.allocator = self.allocator;
+        return new_context;
+    }
+
+    pub fn push(self: *Context, key: []const u8, value: *parser.AstNode) !void {
+        try self.vars.put(key, value);
+    }
+
+    pub fn get(self: *Context, key: []const u8) ?*parser.AstNode {
+        return self.vars.get(key);
+    }
+};
+
 pub const Machine = struct {
     allocator: std.mem.Allocator,
     parser: parser.Parser,
     allocations: std.ArrayList(*parser.AstNode),
-    global_vars: std.StringHashMap(*parser.AstNode),
+    context: *Context,
 
     pub fn init(input: []const u8, allocator: std.mem.Allocator) Machine {
         return Machine{
             .allocator = allocator,
             .parser = parser.Parser.init(input, allocator),
             .allocations = std.ArrayList(*parser.AstNode).init(allocator),
-            .global_vars = std.StringHashMap(*parser.AstNode).init(allocator),
+            .context = Context.init(allocator) catch |err| {
+                std.debug.panic("Failed to initialize context: {}", .{err});
+            },
         };
     }
 
@@ -27,10 +61,10 @@ pub const Machine = struct {
             item.deinit(&self.allocator);
         }
         self.allocations.deinit();
-        self.global_vars.deinit();
+        self.context.deinit();
     }
 
-    pub fn eval(self: *Machine, ast: *parser.AstNode) !*parser.AstNode {
+    pub fn eval(self: *Machine, ctx: *Context, ast: *parser.AstNode) !*parser.AstNode {
         switch (ast.value) {
             .list => |list| {
                 if (list.items.len == 0) {
@@ -39,32 +73,20 @@ pub const Machine = struct {
                 const first = list.items[0];
                 switch (first.value) {
                     .symbol => |symbol| {
-                        // try to evaluate the symbol, but the context needs to somehow resolve to the last parent context? parent pointer in sub items?
-                        if (ast.context) |context| {
-                            first.context = context;
-                        }
-                        const output = try self.eval(first);
-                        if (!output.isNil()) {
-                            return output;
-                        }
+                        const output = self.eval(ctx, first) catch {
+                            const e = std.meta.stringToEnum(builtin.Builtin, symbol);
+                            if (e != null) {
+                                const builtin_fn = builtin.getBuiltin(e.?).value.function;
+                                const result = try builtin_fn(self, ctx, list.items[1..]);
+                                return result;
+                            } else {
+                                // Handle the case where the symbol is not a builtin
+                                std.debug.panic("Unknown symbol: {s}\n", .{symbol});
+                            }
+                        };
 
-                        const e = std.meta.stringToEnum(builtin.Builtin, symbol);
-                        if (e != null) {
-                            const builtin_fn = builtin.getBuiltin(e.?).value.function;
-                            const result = builtin_fn(self, list.items[1..]) catch |err| {
-                                std.debug.panic("Builtin error: {}", .{err});
-                            };
-                            return result;
-                        } else {
-                            // Handle the case where the symbol is not a builtin
-                            std.debug.panic("Unknown symbol: {s}\n", .{symbol});
-                        }
+                        return output;
                     },
-                    // .Symbol => |symbol| {
-                    //     self.math(list) catch |err| {
-                    //         std.debug.panic("Math error: {}", .{err});
-                    //     };
-                    // },
                     else => {},
                 }
             },
@@ -72,22 +94,11 @@ pub const Machine = struct {
                 return ast;
             },
             .symbol => {
-                // Check if the symbol is a local variable
-                if (ast.context) |context| {
-                    std.debug.print("Context: {?}\n", .{context});
-                    const local_var = context.get(ast.value.symbol);
-                    if (local_var) |local| {
-                        return local;
-                    }
+                if (ctx.get(ast.value.symbol)) |local| {
+                    return local;
                 }
 
-                // Check if the symbol is a global variable
-                const global_var = self.global_vars.get(ast.value.symbol);
-                if (global_var) |global| {
-                    return global;
-                }
-
-                return builtin.getBuiltin(.nil);
+                return error.SymbolUndefined;
             },
             else => {},
         }
@@ -111,7 +122,7 @@ pub const Machine = struct {
         const ast = try self.parser.parse();
         var node = ast;
         for (ast.value.list.items) |item| {
-            node = try self.eval(item);
+            node = try self.eval(self.context, item);
         }
         return node;
     }
@@ -196,6 +207,32 @@ test "can evaluate complex expression with nested variables" {
 
 test "can evaluate let statement" {
     const result = try run_and_get_output("(let ((x 5))(+ x 10))", std.testing.allocator);
+    try testing.expect(result.value == .number);
+    try testing.expect(result.value.number == 15);
+}
+
+test "post let statement does not contain scoped variables" {
+    const result = run_and_get_output("(let ((x 5))(+ x 10)) (+ x 10)", std.testing.allocator);
+    try std.testing.expectError(builtin.BuiltinError.SymbolUndefined, result);
+}
+
+test "redefining variables returns an error" {
+    const result = run_and_get_output("(defvar x 5) (defvar x 10)", std.testing.allocator);
+    try std.testing.expectError(builtin.BuiltinError.SymbolAlreadyDefined, result);
+}
+
+test "redefining variables in let returns an error" {
+    const result = run_and_get_output("(let ((x 5) (x 10)) (+ x 10))", std.testing.allocator);
+    try std.testing.expectError(builtin.BuiltinError.SymbolAlreadyDefined, result);
+}
+
+test "redefining global variables with let returns an error" {
+    const result = run_and_get_output("(defvar x 5) (let ((x 10)) (+ x 10))", std.testing.allocator);
+    try std.testing.expectError(builtin.BuiltinError.SymbolAlreadyDefined, result);
+}
+
+test "can evaluate statement with global and local variables" {
+    const result = try run_and_get_output("(defvar x 5) (let ((y 10)) (+ x y))", std.testing.allocator);
     try testing.expect(result.value == .number);
     try testing.expect(result.value.number == 15);
 }

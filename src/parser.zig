@@ -9,30 +9,6 @@ const Lexer = lexer.Lexer;
 const BuiltinFn = @import("builtin.zig").BuiltinFn;
 const builtin = @import("builtin.zig");
 
-pub const Context = struct {
-    vars: std.StringHashMap(*AstNode),
-
-    pub fn init(allocator: std.mem.Allocator) !*Context {
-        const context = try allocator.create(Context);
-        context.vars = std.StringHashMap(*AstNode).init(allocator);
-        return context;
-    }
-
-    pub fn deinit(self: *Context) void {
-        self.vars.deinit();
-    }
-
-    pub fn push(self: *Context, key: []const u8, value: *AstNode) void {
-        self.vars.put(key, value) catch |err| {
-            std.debug.panic("Failed to push variable: {?}", .{err});
-        };
-    }
-
-    pub fn get(self: *Context, key: []const u8) ?*AstNode {
-        return self.vars.get(key);
-    }
-};
-
 pub const AstNodeKind = enum(u8) {
     symbol,
     number,
@@ -55,21 +31,10 @@ pub const AstNodeValue = union(AstNodeKind) {
 
 pub const AstNode = struct {
     value: AstNodeValue,
-    context: ?*Context,
-    parent: ?*AstNode,
 
     pub fn new(value: AstNodeValue, allocator: std.mem.Allocator) !*AstNode {
         const node = try allocator.create(AstNode);
         node.value = value;
-        node.context = null;
-        node.parent = null;
-        return node;
-    }
-
-    pub fn new_with_context(value: AstNodeValue, context: *Context, allocator: std.mem.Allocator) !*AstNode {
-        const node = try allocator.create(AstNode);
-        node.value = value;
-        node.context = context;
         return node;
     }
 
