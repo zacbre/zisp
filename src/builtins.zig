@@ -181,3 +181,19 @@ pub fn @"="(self: *Machine, args: []const *parser.AstNode) BuiltinError!*parser.
     }
     return try self.make_node(parser.AstNode{ .Boolean = result });
 }
+
+pub fn defvar(
+    self: *Machine,
+    args: []const *parser.AstNode,
+) BuiltinError!*parser.AstNode {
+    if (args.len != 2) {
+        return error.InvalidArgument;
+    }
+    const name = args[0].*.Symbol;
+    const value = try self.eval(args[1]);
+    const node = try self.make_node(parser.AstNode{ .Symbol = name });
+    node.* = value.*;
+    try self.variable_map.put(name, node);
+
+    return node;
+}

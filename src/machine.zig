@@ -9,13 +9,14 @@ pub const Machine = struct {
     allocator: std.mem.Allocator,
     parser: parser.Parser,
     allocations: std.ArrayList(*parser.AstNode),
-    // todo: add scoped variables, function labels, etc
+    variable_map: std.StringHashMap(*parser.AstNode),
 
     pub fn init(input: []const u8, allocator: std.mem.Allocator) Machine {
         return Machine{
             .allocator = allocator,
             .parser = parser.Parser.init(input, allocator),
             .allocations = std.ArrayList(*parser.AstNode).init(allocator),
+            .variable_map = std.StringHashMap(*parser.AstNode).init(allocator),
         };
     }
 
@@ -26,6 +27,7 @@ pub const Machine = struct {
             item.deinit(&self.allocator);
         }
         self.allocations.deinit();
+        self.variable_map.deinit();
     }
 
     pub fn eval(self: *Machine, ast: *parser.AstNode) !*parser.AstNode {
@@ -37,28 +39,40 @@ pub const Machine = struct {
                 const first = list.items[0];
                 switch (first.*) {
                     .Symbol => |symbol| {
-                        const e = std.meta.stringToEnum(builtin.Builtin, symbol);
-                        if (e == null) {
-                            std.debug.panic("Unknown builtin function:", .{});
+                        // Check if the symbol is a variable
+                        const variable = self.variable_map.get(symbol);
+                        if (variable) |vari| {
+                            return vari;
                         }
 
-                        const builtin_fn = builtin.getBuiltin(e.?).*.Function;
-                        const result = builtin_fn(self, list.items[1..]) catch |err| {
-                            std.debug.panic("Builtin error: {}", .{err});
-                        };
-                        return result;
+                        const e = std.meta.stringToEnum(builtin.Builtin, symbol);
+                        if (e != null) {
+                            const builtin_fn = builtin.getBuiltin(e.?).*.Function;
+                            const result = builtin_fn(self, list.items[1..]) catch |err| {
+                                std.debug.panic("Builtin error: {}", .{err});
+                            };
+                            return result;
+                        } else {
+                            // Handle the case where the symbol is not a builtin
+                            std.debug.panic("Unknown symbol: {s}\n", .{symbol});
+                        }
                     },
                     // .Symbol => |symbol| {
                     //     self.math(list) catch |err| {
                     //         std.debug.panic("Math error: {}", .{err});
                     //     };
                     // },
-                    else => {
-                        std.debug.panic("Unknown expression type:", .{});
-                    },
+                    else => {},
                 }
             },
             .Number => |_| {
+                return ast;
+            },
+            .Symbol => {
+                const variable = self.variable_map.get(ast.*.Symbol);
+                if (variable) |vari| {
+                    return vari;
+                }
                 return ast;
             },
             else => {},
@@ -73,19 +87,20 @@ pub const Machine = struct {
         }
     }
 
-    fn run_internal(self: *Machine) !*parser.AstNode {
-        const ast = try self.parser.parse();
-        for (ast.*.List.items) |item| {
-            return try self.eval(item);
-        }
-        return error.InvalidArgument;
-    }
-
     pub fn make_node(self: *Machine, node: parser.AstNode) !*parser.AstNode {
         const new_node = try self.allocator.create(parser.AstNode);
         new_node.* = node;
         try self.allocations.append(new_node);
         return new_node;
+    }
+
+    fn run_internal(self: *Machine) !*parser.AstNode {
+        const ast = try self.parser.parse();
+        var node = ast;
+        for (ast.*.List.items) |item| {
+            node = try self.eval(item);
+        }
+        return node;
     }
 };
 
@@ -200,13 +215,15 @@ test "can evaluate complex expression" {
     try testing.expect(result.Number == 12);
 }
 
-// test "evaluate quoted expression" {
-//     const input = "(+ (+ 1 2) 2)";
-//     var allocator = std.testing.allocator;
-//     var machine = Machine.init(input, allocator);
-//     const ast = machine.parser.parse_expression();
-//     defer ast.deinit(&allocator);
+test "can evaluate complex expression with nested variables" {
+    const input = "(defvar x 5) (defvar y (+ x 10)) (+ y 5)";
+    const allocator = std.testing.allocator;
+    var machine = Machine.init(input, allocator);
+    defer machine.deinit();
 
-//     const result = machine.eval(ast) catch @panic("Eval failed");
-//     defer result.deinit(&allocator);
-// }
+    const output = try machine.run_internal();
+    const result = deref_node(output);
+
+    try testing.expect(result == .Number);
+    try testing.expect(result.Number == 20);
+}

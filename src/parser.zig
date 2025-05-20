@@ -16,6 +16,7 @@ pub const AstNode = union(enum) {
     Boolean: bool,
     Quoted: *AstNode,
     Function: BuiltinFn,
+    Empty: void,
 
     pub fn deinit(self: *AstNode, allocator: *std.mem.Allocator) void {
         switch (self.*) {
@@ -32,6 +33,11 @@ pub const AstNode = union(enum) {
             else => {},
         }
         allocator.destroy(self);
+    }
+
+    pub fn empty(_: *AstNode) *AstNode {
+        var node = &AstNode{ .Empty = {} };
+        return &node;
     }
 };
 
