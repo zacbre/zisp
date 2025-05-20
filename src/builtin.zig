@@ -9,6 +9,8 @@ pub const BuiltinError = error{
     InvalidArgument,
     InvalidType,
     OutOfMemory,
+    VariableAlreadyDefined,
+    VariableNotDefined,
 };
 
 pub const BuiltinFn = *const fn (machine: *Machine, []const *AstNode) BuiltinError!*AstNode;
@@ -45,7 +47,8 @@ pub const builtin_map = v: {
         if (@hasDecl(builtins, @tagName(tag))) {
             const field = @field(builtins, f.name);
             arr[@intFromEnum(tag)] = switch (@typeInfo(@TypeOf(field))) {
-                .@"fn" => &AstNode{ .Function = @field(builtins, f.name) },
+                .@"fn" => &AstNode{ .value = .{ .function = @field(builtins, f.name) } },
+                .void => &AstNode{ .value = .{ .symbol = f.name } },
                 else => @compileError("Unsupported type for intrinsic named " ++ f.name),
             };
         } else @compileError("All public decls should have a generated Intrinsic entry");

@@ -9,14 +9,16 @@ pub const Machine = struct {
     allocator: std.mem.Allocator,
     parser: parser.Parser,
     allocations: std.ArrayList(*parser.AstNode),
-    variable_map: std.StringHashMap(*parser.AstNode),
+    global_vars: std.StringHashMap(*parser.AstNode),
+    local_vars: std.StringHashMap(*parser.AstNode),
 
     pub fn init(input: []const u8, allocator: std.mem.Allocator) Machine {
         return Machine{
             .allocator = allocator,
             .parser = parser.Parser.init(input, allocator),
             .allocations = std.ArrayList(*parser.AstNode).init(allocator),
-            .variable_map = std.StringHashMap(*parser.AstNode).init(allocator),
+            .global_vars = std.StringHashMap(*parser.AstNode).init(allocator),
+            .local_vars = std.StringHashMap(*parser.AstNode).init(allocator),
         };
     }
 
@@ -27,27 +29,28 @@ pub const Machine = struct {
             item.deinit(&self.allocator);
         }
         self.allocations.deinit();
-        self.variable_map.deinit();
+        self.global_vars.deinit();
+        self.local_vars.deinit();
     }
 
     pub fn eval(self: *Machine, ast: *parser.AstNode) !*parser.AstNode {
-        switch (ast.*) {
-            .List => |list| {
+        switch (ast.value) {
+            .list => |list| {
                 if (list.items.len == 0) {
-                    return ast;
+                    return builtin.getBuiltin(.nil);
                 }
                 const first = list.items[0];
-                switch (first.*) {
-                    .Symbol => |symbol| {
-                        // Check if the symbol is a variable
-                        const variable = self.variable_map.get(symbol);
-                        if (variable) |vari| {
-                            return vari;
+                switch (first.value) {
+                    .symbol => |symbol| {
+                        // try to evaluate the symbol
+                        const output = try self.eval(first);
+                        if (!output.isNil()) {
+                            return output;
                         }
 
                         const e = std.meta.stringToEnum(builtin.Builtin, symbol);
                         if (e != null) {
-                            const builtin_fn = builtin.getBuiltin(e.?).*.Function;
+                            const builtin_fn = builtin.getBuiltin(e.?).value.function;
                             const result = builtin_fn(self, list.items[1..]) catch |err| {
                                 std.debug.panic("Builtin error: {}", .{err});
                             };
@@ -65,15 +68,22 @@ pub const Machine = struct {
                     else => {},
                 }
             },
-            .Number => |_| {
+            .number => |_| {
                 return ast;
             },
-            .Symbol => {
-                const variable = self.variable_map.get(ast.*.Symbol);
-                if (variable) |vari| {
-                    return vari;
+            .symbol => {
+                // Check if the symbol is a local variable
+                const local_var = self.local_vars.get(ast.value.symbol);
+                if (local_var) |local| {
+                    return local;
                 }
-                return ast;
+                // Check if the symbol is a global variable
+                const global_var = self.global_vars.get(ast.value.symbol);
+                if (global_var) |global| {
+                    return global;
+                }
+
+                return builtin.getBuiltin(.nil);
             },
             else => {},
         }
@@ -97,7 +107,7 @@ pub const Machine = struct {
     fn run_internal(self: *Machine) !*parser.AstNode {
         const ast = try self.parser.parse();
         var node = ast;
-        for (ast.*.List.items) |item| {
+        for (ast.value.list.items) |item| {
             node = try self.eval(item);
         }
         return node;
@@ -105,7 +115,7 @@ pub const Machine = struct {
 };
 
 fn deref_list(node: *parser.AstNode) parser.AstNode {
-    return node.*.List.items[0].*;
+    return node.value.list.items[0].*;
 }
 
 fn deref_node(node: *parser.AstNode) parser.AstNode {
@@ -114,116 +124,75 @@ fn deref_node(node: *parser.AstNode) parser.AstNode {
 
 fn run_and_get_output(
     input: []const u8,
-    allocator: *std.mem.Allocator,
-) !*parser.AstNode {
+    allocator: std.mem.Allocator,
+) !parser.AstNode {
     var machine = Machine.init(input, allocator);
     defer machine.deinit();
 
     const output = try machine.run_internal();
+    const result = deref_node(output);
 
-    return output;
+    return result;
 }
 
 test "evaluate simple addition" {
-    const input = "(+ 2 5)";
-    const allocator = std.testing.allocator;
-    var machine = Machine.init(input, allocator);
-    defer machine.deinit();
+    const result = try run_and_get_output("(+ 2 5)", std.testing.allocator);
 
-    const output = try machine.run_internal();
-    const result = deref_node(output);
-
-    try testing.expect(result == .Number);
-    try testing.expect(result.Number == 7);
+    try testing.expect(result.value == .number);
+    try testing.expect(result.value.number == 7);
 }
 
 test "evaluate simple subtraction" {
-    const input = "(- 5 2)";
-    const allocator = std.testing.allocator;
-    var machine = Machine.init(input, allocator);
-    defer machine.deinit();
+    const result = try run_and_get_output("(- 5 2)", std.testing.allocator);
 
-    const output = try machine.run_internal();
-    const result = deref_node(output);
-
-    try testing.expect(result == .Number);
-    try testing.expect(result.Number == 3);
+    try testing.expect(result.value == .number);
+    try testing.expect(result.value.number == 3);
 }
 
 test "evaluate simple multiplication" {
-    const input = "(* 2 3)";
-    const allocator = std.testing.allocator;
-    var machine = Machine.init(input, allocator);
-    defer machine.deinit();
+    const result = try run_and_get_output("(* 2 3)", std.testing.allocator);
 
-    const output = try machine.run_internal();
-    const result = deref_node(output);
-
-    try testing.expect(result == .Number);
-    try testing.expect(result.Number == 6);
+    try testing.expect(result.value == .number);
+    try testing.expect(result.value.number == 6);
 }
 
 test "evaluate simple division" {
-    const input = "(/ 6 2)";
-    const allocator = std.testing.allocator;
-    var machine = Machine.init(input, allocator);
-    defer machine.deinit();
+    const result = try run_and_get_output("(/ 6 2)", std.testing.allocator);
 
-    const output = try machine.run_internal();
-    const result = deref_node(output);
-
-    try testing.expect(result == .Number);
-    try testing.expect(result.Number == 3);
+    try testing.expect(result.value == .number);
+    try testing.expect(result.value.number == 3);
 }
 
 test "evaluate nested expression" {
-    const input = "(+ 1 (* 2 3))";
-    const allocator = std.testing.allocator;
-    var machine = Machine.init(input, allocator);
-    defer machine.deinit();
-
-    const output = try machine.run_internal();
-    const result = deref_node(output);
-
-    try testing.expect(result == .Number);
-    try testing.expect(result.Number == 7);
+    const result = try run_and_get_output("(+ 1 (* 2 3))", std.testing.allocator);
+    try testing.expect(result.value == .number);
+    try testing.expect(result.value.number == 7);
 }
 
 test "evaluate recursive expression" {
-    const input = "(- 10 (+ 2 3))";
-    const allocator = std.testing.allocator;
-    var machine = Machine.init(input, allocator);
-    defer machine.deinit();
-
-    const output = try machine.run_internal();
-    const result = deref_node(output);
-
-    try testing.expect(result == .Number);
-    try testing.expect(result.Number == 5);
+    const result = try run_and_get_output("(defvar x 5) (+ x 10)", std.testing.allocator);
+    try testing.expect(result.value == .number);
+    try testing.expect(result.value.number == 15);
 }
 
 test "can evaluate complex expression" {
     const input = "(+ (+ (- 5 1) (* 2 3)) 2)";
-    const allocator = std.testing.allocator;
-    var machine = Machine.init(input, allocator);
-    defer machine.deinit();
+    const result = try run_and_get_output(input, std.testing.allocator);
 
-    const output = try machine.run_internal();
-    const result = deref_node(output);
-
-    try testing.expect(result == .Number);
-    try testing.expect(result.Number == 12);
+    try testing.expect(result.value == .number);
+    try testing.expect(result.value.number == 12);
 }
 
 test "can evaluate complex expression with nested variables" {
     const input = "(defvar x 5) (defvar y (+ x 10)) (+ y 5)";
-    const allocator = std.testing.allocator;
-    var machine = Machine.init(input, allocator);
-    defer machine.deinit();
+    const result = try run_and_get_output(input, std.testing.allocator);
 
-    const output = try machine.run_internal();
-    const result = deref_node(output);
+    try testing.expect(result.value == .number);
+    try testing.expect(result.value.number == 20);
+}
 
-    try testing.expect(result == .Number);
-    try testing.expect(result.Number == 20);
+test "can evaluate let statement" {
+    const result = try run_and_get_output("(let ((x 5))(+ x 10))", std.testing.allocator);
+    try testing.expect(result.value == .number);
+    try testing.expect(result.value.number == 15);
 }
