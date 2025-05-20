@@ -12,6 +12,7 @@ pub fn @"+"(self: *Machine, args: []const *parser.AstNode) BuiltinError!*parser.
     }
     var sum: f64 = 0;
     for (args) |arg| {
+        std.debug.print("arg: {any}\n", .{arg.value});
         const output = try self.eval(arg);
         switch (output.value) {
             .number => |num| {
@@ -23,7 +24,7 @@ pub fn @"+"(self: *Machine, args: []const *parser.AstNode) BuiltinError!*parser.
             },
         }
     }
-    return try self.make_node(parser.AstNode{ .value = .{ .number = sum } });
+    return try self.make_node(.{ .number = sum });
 }
 
 pub fn @"-"(self: *Machine, args: []const *parser.AstNode) BuiltinError!*parser.AstNode {
@@ -46,7 +47,7 @@ pub fn @"-"(self: *Machine, args: []const *parser.AstNode) BuiltinError!*parser.
             },
         }
     }
-    return try self.make_node(parser.AstNode{ .value = .{ .number = result } });
+    return try self.make_node(.{ .number = result });
 }
 
 pub fn @"*"(self: *Machine, args: []const *parser.AstNode) BuiltinError!*parser.AstNode {
@@ -65,7 +66,7 @@ pub fn @"*"(self: *Machine, args: []const *parser.AstNode) BuiltinError!*parser.
             },
         }
     }
-    return try self.make_node(parser.AstNode{ .value = .{ .number = product } });
+    return try self.make_node(.{ .number = product });
 }
 
 pub fn @"/"(self: *Machine, args: []const *parser.AstNode) BuiltinError!*parser.AstNode {
@@ -88,7 +89,7 @@ pub fn @"/"(self: *Machine, args: []const *parser.AstNode) BuiltinError!*parser.
             },
         }
     }
-    return try self.make_node(parser.AstNode{ .value = .{ .number = result } });
+    return try self.make_node(.{ .number = result });
 }
 pub fn @">"(self: *Machine, args: []const *parser.AstNode) BuiltinError!*parser.AstNode {
     if (args.len == 0) {
@@ -106,7 +107,7 @@ pub fn @">"(self: *Machine, args: []const *parser.AstNode) BuiltinError!*parser.
             },
         }
     }
-    return try self.make_node(parser.AstNode{ .value = .{ .boolean = result } });
+    return try self.make_node(.{ .boolean = result });
 }
 
 pub fn @">="(self: *Machine, args: []const *parser.AstNode) BuiltinError!*parser.AstNode {
@@ -125,7 +126,7 @@ pub fn @">="(self: *Machine, args: []const *parser.AstNode) BuiltinError!*parser
             },
         }
     }
-    return try self.make_node(parser.AstNode{ .value = .{ .boolean = result } });
+    return try self.make_node(.{ .boolean = result });
 }
 
 pub fn @"<"(self: *Machine, args: []const *parser.AstNode) BuiltinError!*parser.AstNode {
@@ -144,7 +145,7 @@ pub fn @"<"(self: *Machine, args: []const *parser.AstNode) BuiltinError!*parser.
             },
         }
     }
-    return try self.make_node(parser.AstNode{ .value = .{ .boolean = result } });
+    return try self.make_node(.{ .boolean = result });
 }
 
 pub fn @"<="(self: *Machine, args: []const *parser.AstNode) BuiltinError!*parser.AstNode {
@@ -163,7 +164,7 @@ pub fn @"<="(self: *Machine, args: []const *parser.AstNode) BuiltinError!*parser
             },
         }
     }
-    return try self.make_node(parser.AstNode{ .value = .{ .boolean = result } });
+    return try self.make_node(.{ .boolean = result });
 }
 
 pub fn @"="(self: *Machine, args: []const *parser.AstNode) BuiltinError!*parser.AstNode {
@@ -182,7 +183,7 @@ pub fn @"="(self: *Machine, args: []const *parser.AstNode) BuiltinError!*parser.
             },
         }
     }
-    return try self.make_node(parser.AstNode{ .value = .{ .boolean = result } });
+    return try self.make_node(.{ .boolean = result });
 }
 
 pub fn defvar(
@@ -194,7 +195,7 @@ pub fn defvar(
     }
     const name = args[0].value.symbol;
     const value = try self.eval(args[1]);
-    const node = try self.make_node(parser.AstNode{ .value = .{ .symbol = name } });
+    const node = try self.make_node(.{ .symbol = name });
     node.* = value.*;
     try self.global_vars.put(name, node);
 
@@ -206,6 +207,8 @@ pub fn let(self: *Machine, args: []const *parser.AstNode) BuiltinError!*parser.A
         return error.InvalidArgument;
     }
 
+    args[1].context = try parser.Context.init(self.allocator);
+
     for (args[0].value.list.items) |arg| {
         // arg will be lists in the format of: (a 10) or (a '10) or (a 10) or (a b)
         if (arg.value.list.items.len != 2) {
@@ -213,15 +216,14 @@ pub fn let(self: *Machine, args: []const *parser.AstNode) BuiltinError!*parser.A
         }
         const items = arg.value.list.items;
         const name = items[0].value.symbol;
-        if (self.global_vars.get(name) != null or self.local_vars.get(name) != null) {
+        if (self.global_vars.get(name) != null or args[1].context.?.get(name) != null) {
             return error.VariableAlreadyDefined;
         }
         const value = try self.eval(items[1]);
-        try self.local_vars.put(name, value);
+        args[1].context.?.push(name, value);
     }
 
     const output = try self.eval(args[1]);
-
-    self.local_vars.clearRetainingCapacity();
+    args[1].context.?.deinit();
     return output;
 }

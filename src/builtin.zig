@@ -47,8 +47,8 @@ pub const builtin_map = v: {
         if (@hasDecl(builtins, @tagName(tag))) {
             const field = @field(builtins, f.name);
             arr[@intFromEnum(tag)] = switch (@typeInfo(@TypeOf(field))) {
-                .@"fn" => &AstNode{ .value = .{ .function = @field(builtins, f.name) } },
-                .void => &AstNode{ .value = .{ .symbol = f.name } },
+                .@"fn" => &AstNode{ .value = .{ .function = @field(builtins, f.name) }, .context = null },
+                .void => &AstNode{ .value = .{ .symbol = f.name }, .context = null },
                 else => @compileError("Unsupported type for intrinsic named " ++ f.name),
             };
         } else @compileError("All public decls should have a generated Intrinsic entry");

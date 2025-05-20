@@ -10,7 +10,6 @@ pub const Machine = struct {
     parser: parser.Parser,
     allocations: std.ArrayList(*parser.AstNode),
     global_vars: std.StringHashMap(*parser.AstNode),
-    local_vars: std.StringHashMap(*parser.AstNode),
 
     pub fn init(input: []const u8, allocator: std.mem.Allocator) Machine {
         return Machine{
@@ -18,7 +17,6 @@ pub const Machine = struct {
             .parser = parser.Parser.init(input, allocator),
             .allocations = std.ArrayList(*parser.AstNode).init(allocator),
             .global_vars = std.StringHashMap(*parser.AstNode).init(allocator),
-            .local_vars = std.StringHashMap(*parser.AstNode).init(allocator),
         };
     }
 
@@ -30,7 +28,6 @@ pub const Machine = struct {
         }
         self.allocations.deinit();
         self.global_vars.deinit();
-        self.local_vars.deinit();
     }
 
     pub fn eval(self: *Machine, ast: *parser.AstNode) !*parser.AstNode {
@@ -42,7 +39,10 @@ pub const Machine = struct {
                 const first = list.items[0];
                 switch (first.value) {
                     .symbol => |symbol| {
-                        // try to evaluate the symbol
+                        // try to evaluate the symbol, but the context needs to somehow resolve to the last parent context? parent pointer in sub items?
+                        if (ast.context) |context| {
+                            first.context = context;
+                        }
                         const output = try self.eval(first);
                         if (!output.isNil()) {
                             return output;
@@ -73,10 +73,14 @@ pub const Machine = struct {
             },
             .symbol => {
                 // Check if the symbol is a local variable
-                const local_var = self.local_vars.get(ast.value.symbol);
-                if (local_var) |local| {
-                    return local;
+                if (ast.context) |context| {
+                    std.debug.print("Context: {?}\n", .{context});
+                    const local_var = context.get(ast.value.symbol);
+                    if (local_var) |local| {
+                        return local;
+                    }
                 }
+
                 // Check if the symbol is a global variable
                 const global_var = self.global_vars.get(ast.value.symbol);
                 if (global_var) |global| {
@@ -97,9 +101,8 @@ pub const Machine = struct {
         }
     }
 
-    pub fn make_node(self: *Machine, node: parser.AstNode) !*parser.AstNode {
-        const new_node = try self.allocator.create(parser.AstNode);
-        new_node.* = node;
+    pub fn make_node(self: *Machine, node: parser.AstNodeValue) !*parser.AstNode {
+        const new_node = try parser.AstNode.new(node, self.allocator);
         try self.allocations.append(new_node);
         return new_node;
     }

@@ -9,6 +9,30 @@ const Lexer = lexer.Lexer;
 const BuiltinFn = @import("builtin.zig").BuiltinFn;
 const builtin = @import("builtin.zig");
 
+pub const Context = struct {
+    vars: std.StringHashMap(*AstNode),
+
+    pub fn init(allocator: std.mem.Allocator) !*Context {
+        const context = try allocator.create(Context);
+        context.vars = std.StringHashMap(*AstNode).init(allocator);
+        return context;
+    }
+
+    pub fn deinit(self: *Context) void {
+        self.vars.deinit();
+    }
+
+    pub fn push(self: *Context, key: []const u8, value: *AstNode) void {
+        self.vars.put(key, value) catch |err| {
+            std.debug.panic("Failed to push variable: {?}", .{err});
+        };
+    }
+
+    pub fn get(self: *Context, key: []const u8) ?*AstNode {
+        return self.vars.get(key);
+    }
+};
+
 pub const AstNodeKind = enum(u8) {
     symbol,
     number,
@@ -31,6 +55,23 @@ pub const AstNodeValue = union(AstNodeKind) {
 
 pub const AstNode = struct {
     value: AstNodeValue,
+    context: ?*Context,
+    parent: ?*AstNode,
+
+    pub fn new(value: AstNodeValue, allocator: std.mem.Allocator) !*AstNode {
+        const node = try allocator.create(AstNode);
+        node.value = value;
+        node.context = null;
+        node.parent = null;
+        return node;
+    }
+
+    pub fn new_with_context(value: AstNodeValue, context: *Context, allocator: std.mem.Allocator) !*AstNode {
+        const node = try allocator.create(AstNode);
+        node.value = value;
+        node.context = context;
+        return node;
+    }
 
     pub fn deinit(self: *AstNode, allocator: *std.mem.Allocator) void {
         switch (self.value) {
@@ -93,7 +134,7 @@ pub const Parser = struct {
     }
 
     pub fn parse(self: *Parser) !*AstNode {
-        self.current_node = try self.make_node(AstNode{ .value = .{ .list = std.ArrayList(*AstNode).init(self.allocator) } });
+        self.current_node = try self.make_node(.{ .list = std.ArrayList(*AstNode).init(self.allocator) });
         defer self.node_stack.deinit();
 
         while (true) {
@@ -101,7 +142,7 @@ pub const Parser = struct {
                 TokenKind.LPAREN => {
                     self.next_token();
                     try self.node_stack.append(self.current_node);
-                    self.current_node = try self.make_node(AstNode{ .value = .{ .list = std.ArrayList(*AstNode).init(self.allocator) } });
+                    self.current_node = try self.make_node(.{ .list = std.ArrayList(*AstNode).init(self.allocator) });
                 },
                 TokenKind.RPAREN => {
                     self.next_token();
@@ -119,7 +160,7 @@ pub const Parser = struct {
                 TokenKind.QUOTE => {
                     self.next_token();
                     const quoted = try self.parse();
-                    const inner = try self.make_node(AstNode{ .value = .{ .quoted = quoted } });
+                    const inner = try self.make_node(.{ .quoted = quoted });
                     self.next_token();
                     self.current_node.value.list.append(inner) catch {
                         std.debug.panic("Failed to append quoted node to list", .{});
@@ -130,22 +171,22 @@ pub const Parser = struct {
                         std.debug.panic("Failed to parse float: {d}", .{self.current_token.value});
                     };
                     self.next_token();
-                    try self.current_node.value.list.append(try self.make_node(AstNode{ .value = .{ .number = value } }));
+                    try self.current_node.value.list.append(try self.make_node(.{ .number = value }));
                 },
                 TokenKind.IDENTIFIER => {
                     const value = self.current_token.value;
                     self.next_token();
-                    try self.current_node.value.list.append(try self.make_node(AstNode{ .value = .{ .symbol = value } }));
+                    try self.current_node.value.list.append(try self.make_node(.{ .symbol = value }));
                 },
                 TokenKind.STRING => {
                     const value = self.current_token.value;
                     self.next_token();
-                    try self.current_node.value.list.append(try self.make_node(AstNode{ .value = .{ .string = value } }));
+                    try self.current_node.value.list.append(try self.make_node(.{ .string = value }));
                 },
                 TokenKind.BOOLEAN => {
                     const value = if (std.mem.eql(u8, self.current_token.value, "#t")) true else false;
                     self.next_token();
-                    try self.current_node.value.list.append(try self.make_node(AstNode{ .value = .{ .boolean = value } }));
+                    try self.current_node.value.list.append(try self.make_node(.{ .boolean = value }));
                 },
                 TokenKind.EOF => {
                     if (self.node_stack.items.len > 0) {
@@ -164,10 +205,9 @@ pub const Parser = struct {
         self.current_token = self.lexer.next_token();
     }
 
-    fn make_node(self: *Parser, kind: AstNode) !*AstNode {
-        const node = try self.allocator.create(AstNode);
-        node.* = kind;
-        return node;
+    fn make_node(self: *Parser, node: AstNodeValue) !*AstNode {
+        const new_node = try AstNode.new(node, self.allocator);
+        return new_node;
     }
 };
 
@@ -268,7 +308,7 @@ test "can parse nested expression" {
 
     const output = try parser.parse();
     const node = deref_list(output);
-    //try testing.expect(node.list.items.len == 3);
+    try testing.expect(node.value.list.items.len == 3);
     try testing.expect(std.mem.eql(u8, node.value.list.items[0].value.symbol, "foo"));
     try testing.expect(node.value.list.items[1].value.list.items.len == 2);
     try testing.expect(std.mem.eql(u8, node.value.list.items[1].value.list.items[0].value.symbol, "bar"));
@@ -276,4 +316,33 @@ test "can parse nested expression" {
     try testing.expect(node.value.list.items[2].value.list.items.len == 2);
     try testing.expect(std.mem.eql(u8, node.value.list.items[2].value.list.items[0].value.symbol, "baz"));
     try testing.expect(node.value.list.items[2].value.list.items[1].value.number == 123);
+}
+
+test "can parse nested list" {
+    const allocator = std.testing.allocator;
+    var parser = Parser.init("(let ((x 10)(y 15)) (+ x y))", allocator);
+    defer parser.deinit();
+
+    const output = try parser.parse();
+    const node = deref_list(output);
+    try testing.expect(node.value.list.items.len == 3);
+    try testing.expect(std.mem.eql(u8, node.value.list.items[0].value.symbol, "let"));
+    const first_item = node.value.list.items[1].value;
+
+    try testing.expect(first_item.list.items.len == 2);
+    const item_sublist_1 = first_item.list.items[0];
+    try testing.expect(item_sublist_1.value.list.items.len == 2);
+    const item_sublist_1_items = item_sublist_1.value.list.items;
+    try testing.expect(std.mem.eql(u8, item_sublist_1_items[0].value.symbol, "x"));
+    try testing.expect(item_sublist_1_items[1].value.number == 10);
+    const item_sublist_2 = first_item.list.items[1];
+    try testing.expect(item_sublist_2.value.list.items.len == 2);
+    const item_sublist_2_items = item_sublist_2.value.list.items;
+    try testing.expect(std.mem.eql(u8, item_sublist_2_items[0].value.symbol, "y"));
+    try testing.expect(item_sublist_2_items[1].value.number == 15);
+    const last_item = node.value.list.items[2];
+    try testing.expect(last_item.value.list.items.len == 3);
+    try testing.expect(std.mem.eql(u8, last_item.value.list.items[0].value.symbol, "+"));
+    try testing.expect(std.mem.eql(u8, last_item.value.list.items[1].value.symbol, "x"));
+    try testing.expect(std.mem.eql(u8, last_item.value.list.items[2].value.symbol, "y"));
 }
