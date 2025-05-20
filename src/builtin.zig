@@ -8,9 +8,10 @@ const EnumField = std.builtin.Type.EnumField;
 pub const BuiltinError = error{
     InvalidArgument,
     InvalidType,
+    OutOfMemory,
 };
 
-pub const BuiltinFn = *const fn (machine: *Machine, []const AstNode) BuiltinError!AstNode;
+pub const BuiltinFn = *const fn (machine: *Machine, []const *AstNode) BuiltinError!*AstNode;
 
 pub const Builtin = v: {
     const decls = std.meta.declarations(builtins);

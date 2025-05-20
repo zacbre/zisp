@@ -11,14 +11,14 @@ const BuiltinFn = @import("builtin.zig").BuiltinFn;
 pub const AstNode = union(enum) {
     Symbol: []const u8,
     Number: f64,
-    List: std.ArrayList(AstNode),
+    List: std.ArrayList(*AstNode),
     String: []const u8,
     Boolean: bool,
     Quoted: *AstNode,
     Function: BuiltinFn,
 
-    pub fn deinit(self: AstNode, allocator: *std.mem.Allocator) void {
-        switch (self) {
+    pub fn deinit(self: *AstNode, allocator: *std.mem.Allocator) void {
+        switch (self.*) {
             .List => |list| {
                 for (list.items) |node| {
                     node.deinit(allocator);
@@ -26,12 +26,12 @@ pub const AstNode = union(enum) {
                 list.deinit();
             },
             .Quoted => |quoted| {
-                const inner = quoted.*;
-                inner.deinit(allocator);
+                quoted.deinit(allocator);
                 allocator.destroy(quoted);
             },
             else => {},
         }
+        allocator.destroy(self);
     }
 };
 
@@ -43,34 +43,33 @@ pub const Parser = struct {
     node_stack: std.ArrayList(*AstNode),
 
     pub fn init(input: []const u8, allocator: std.mem.Allocator) Parser {
+        var empty_node = AstNode{ .Number = 0 };
         var p = Parser{
             .lexer = Lexer.init(input),
             .allocator = allocator,
             .current_token = Token{ .kind = TokenKind.EOF, .value = "" },
-            .current_node = allocator.create(AstNode) catch @panic("OOM while creating AST node"),
+            .current_node = &empty_node,
             .node_stack = std.ArrayList(*AstNode).init(allocator),
         };
-        p.current_node.* = AstNode{ .List = std.ArrayList(AstNode).init(allocator) };
+
         p.next_token();
         return p;
     }
 
-    pub fn parse_single(self: *Parser) !AstNode {
-        const node = try self.parse();
-        defer node.deinit(&self.allocator);
-        return node.List.items[0];
+    pub fn deinit(self: *Parser) void {
+        self.current_node.deinit(&self.allocator);
     }
 
     pub fn parse(self: *Parser) !*AstNode {
+        self.current_node = try self.make_node(AstNode{ .List = std.ArrayList(*AstNode).init(self.allocator) });
+        defer self.node_stack.deinit();
+
         while (true) {
             switch (self.current_token.kind) {
                 TokenKind.LPAREN => {
                     self.next_token();
                     try self.node_stack.append(self.current_node);
-                    // make a new list node
-                    const list = try self.allocator.create(AstNode);
-                    list.* = AstNode{ .List = std.ArrayList(AstNode).init(self.allocator) };
-                    self.current_node = list;
+                    self.current_node = try self.make_node(AstNode{ .List = std.ArrayList(*AstNode).init(self.allocator) });
                 },
                 TokenKind.RPAREN => {
                     self.next_token();
@@ -83,15 +82,14 @@ pub const Parser = struct {
                         std.debug.panic("Failed to pop node from stack", .{});
                     }
                     self.current_node = popped_node.?;
-                    try self.current_node.List.append(old_node.*);
+                    try self.current_node.List.append(old_node);
                 },
                 TokenKind.QUOTE => {
                     self.next_token();
                     const quoted = try self.parse();
-                    const inner = try self.allocator.create(AstNode);
-                    inner.* = quoted;
+                    const inner = try self.make_node(AstNode{ .Quoted = quoted });
                     self.next_token();
-                    self.current_node.List.append(AstNode{ .Quoted = inner }) catch {
+                    self.current_node.List.append(inner) catch {
                         std.debug.panic("Failed to append quoted node to list", .{});
                     };
                 },
@@ -100,32 +98,27 @@ pub const Parser = struct {
                         std.debug.panic("Failed to parse float: {d}", .{self.current_token.value});
                     };
                     self.next_token();
-                    self.current_node.List.append(AstNode{ .Number = value }) catch {
-                        std.debug.panic("Failed to append number to list", .{});
-                    };
+                    try self.current_node.List.append(try self.make_node(AstNode{ .Number = value }));
                 },
                 TokenKind.IDENTIFIER => {
                     const value = self.current_token.value;
                     self.next_token();
-                    self.current_node.List.append(AstNode{ .Symbol = value }) catch {
-                        std.debug.panic("Failed to append symbol to list", .{});
-                    };
+                    try self.current_node.List.append(try self.make_node(AstNode{ .Symbol = value }));
                 },
                 TokenKind.STRING => {
                     const value = self.current_token.value;
                     self.next_token();
-                    self.current_node.List.append(AstNode{ .String = value }) catch {
-                        std.debug.panic("Failed to append string to list", .{});
-                    };
+                    try self.current_node.List.append(try self.make_node(AstNode{ .String = value }));
                 },
                 TokenKind.BOOLEAN => {
                     const value = if (std.mem.eql(u8, self.current_token.value, "#t")) true else false;
                     self.next_token();
-                    self.current_node.List.append(AstNode{ .Boolean = value }) catch {
-                        std.debug.panic("Failed to append boolean to list", .{});
-                    };
+                    try self.current_node.List.append(try self.make_node(AstNode{ .Boolean = value }));
                 },
                 TokenKind.EOF => {
+                    if (self.node_stack.items.len > 0) {
+                        std.debug.panic("Unexpected end of input", .{});
+                    }
                     return self.current_node;
                 },
                 else => {
@@ -138,13 +131,25 @@ pub const Parser = struct {
     fn next_token(self: *Parser) void {
         self.current_token = self.lexer.next_token();
     }
+
+    fn make_node(self: *Parser, kind: AstNode) !*AstNode {
+        const node = try self.allocator.create(AstNode);
+        node.* = kind;
+        return node;
+    }
 };
 
+fn deref_list(node: *AstNode) AstNode {
+    return node.*.List.items[0].*;
+}
+
 test "can parse a simple expression" {
-    var allocator = std.testing.allocator;
+    const allocator = std.testing.allocator;
     var parser = Parser.init("(+ 1 2)", allocator);
-    const node = try parser.parse();
-    defer node.deinit(&allocator);
+    defer parser.deinit();
+
+    const output = try parser.parse();
+    const node = deref_list(output);
 
     try testing.expect(node.List.items.len == 3);
     try testing.expect(std.mem.eql(u8, node.List.items[0].Symbol, "+"));
@@ -163,47 +168,59 @@ test "can parse a simple expression" {
 // }
 
 test "can parse a string" {
-    var allocator = std.testing.allocator;
+    const allocator = std.testing.allocator;
     var parser = Parser.init("\"hello\"", allocator);
-    const node = try parser.parse_single();
-    defer node.deinit(&allocator);
+    defer parser.deinit();
+
+    const output = try parser.parse();
+    const node = deref_list(output);
+
     // get the first item from the list.
     try testing.expect(std.mem.eql(u8, node.String, "hello"));
 }
 
 test "can parse a boolean" {
-    var allocator = std.testing.allocator;
+    const allocator = std.testing.allocator;
     var parser = Parser.init("#t", allocator);
-    const node = try parser.parse_single();
-    defer node.deinit(&allocator);
+
+    const output = try parser.parse();
+    const node = deref_list(output);
+
     try testing.expect(node.Boolean == true);
+    parser.deinit();
 
     parser = Parser.init("#f", allocator);
-    const node2 = try parser.parse_single();
-    defer node2.deinit(&allocator);
+    const output2 = try parser.parse();
+    const node2 = deref_list(output2);
+
     try testing.expect(node2.Boolean == false);
+    parser.deinit();
 }
 test "can parse a number" {
-    var allocator = std.testing.allocator;
+    const allocator = std.testing.allocator;
     var parser = Parser.init("42", allocator);
-    const node = try parser.parse_single();
-    defer node.deinit(&allocator);
+    defer parser.deinit();
+    const output = try parser.parse();
+    const node = deref_list(output);
     try testing.expect(node.Number == 42);
 }
 
 test "can parse an identifier" {
-    var allocator = std.testing.allocator;
+    const allocator = std.testing.allocator;
     var parser = Parser.init("foo", allocator);
-    const node = try parser.parse_single();
-    defer node.deinit(&allocator);
+    defer parser.deinit();
+    const output = try parser.parse();
+    const node = deref_list(output);
     try testing.expect(std.mem.eql(u8, node.Symbol, "foo"));
 }
 
 test "can parse a list with mixed types" {
-    var allocator = std.testing.allocator;
+    const allocator = std.testing.allocator;
     var parser = Parser.init("(foo 42 123.456 \"bar\" #t)", allocator);
-    const node = try parser.parse();
-    defer node.deinit(&allocator);
+    defer parser.deinit();
+    const output = try parser.parse();
+
+    const node = deref_list(output);
     try testing.expect(node.List.items.len == 5);
     try testing.expect(std.mem.eql(u8, node.List.items[0].Symbol, "foo"));
     try testing.expect(node.List.items[1].Number == 42);
@@ -213,10 +230,12 @@ test "can parse a list with mixed types" {
 }
 
 test "can parse nested expression" {
-    var allocator = std.testing.allocator;
+    const allocator = std.testing.allocator;
     var parser = Parser.init("(foo (bar 42) (baz 123))", allocator);
-    const node = try parser.parse();
-    defer node.deinit(&allocator);
+    defer parser.deinit();
+
+    const output = try parser.parse();
+    const node = deref_list(output);
     //try testing.expect(node.List.items.len == 3);
     try testing.expect(std.mem.eql(u8, node.List.items[0].Symbol, "foo"));
     try testing.expect(node.List.items[1].List.items.len == 2);
