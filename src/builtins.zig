@@ -4,6 +4,7 @@ const machine = @import("machine.zig");
 const Machine = machine.Machine;
 const Context = machine.Context;
 const BuiltinError = @import("builtin.zig").BuiltinError;
+const GetBuiltIn = @import("builtin.zig").getBuiltin;
 
 pub const nil: void = {};
 
@@ -212,7 +213,6 @@ pub fn let(self: *Machine, ctx: *Context, args: []const *parser.AstNode) Builtin
     const new_ctx = try ctx.clone();
     defer new_ctx.deinit();
     for (args[0].value.list.items) |arg| {
-        // arg will be lists in the format of: (a 10) or (a '10) or (a 10) or (a b)
         if (arg.value.list.items.len != 2) {
             return error.InvalidParameterCount;
         }
@@ -227,4 +227,51 @@ pub fn let(self: *Machine, ctx: *Context, args: []const *parser.AstNode) Builtin
 
     const output = try self.eval(new_ctx, args[1]);
     return output;
+}
+
+pub fn print(self: *Machine, ctx: *Context, args: []const *parser.AstNode) BuiltinError!*parser.AstNode {
+    return try print_internal(self, ctx, args, 0);
+}
+
+fn print_internal(
+    self: *Machine,
+    ctx: *Context,
+    args: []const *parser.AstNode,
+    level: usize,
+) BuiltinError!*parser.AstNode {
+    if (args.len == 0) {
+        return error.InvalidArgument;
+    }
+    if (level > 0) {
+        for (0..level) |_| {
+            std.debug.print("\t", .{});
+        }
+    }
+    for (args) |arg| {
+        const output = try self.eval(ctx, arg);
+        switch (output.value) {
+            .boolean => |b| {
+                std.debug.print("{any}", .{b});
+            },
+            .number => |num| {
+                std.debug.print("{d}", .{num});
+            },
+            .string => |str| {
+                std.debug.print("{s}", .{str});
+            },
+            .symbol => |symbol| {
+                std.debug.print("{s}", .{symbol});
+            },
+            .list => |list| {
+                std.debug.print("[", .{});
+                _ = try print_internal(self, ctx, list.items, level + 1);
+                std.debug.print("]", .{});
+            },
+            else => {
+                std.debug.print("{?}", .{output});
+            },
+        }
+    }
+    std.debug.print("\n", .{});
+    return GetBuiltIn(.nil);
 }

@@ -48,7 +48,6 @@ pub const AstNode = struct {
             },
             .quoted => |quoted| {
                 quoted.deinit(allocator);
-                allocator.destroy(quoted);
             },
             else => {},
         }
@@ -96,11 +95,11 @@ pub const Parser = struct {
 
     pub fn deinit(self: *Parser) void {
         self.current_node.deinit(&self.allocator);
+        self.node_stack.deinit();
     }
 
     pub fn parse(self: *Parser) !*AstNode {
         self.current_node = try self.make_node(.{ .list = std.ArrayList(*AstNode).init(self.allocator) });
-        defer self.node_stack.deinit();
 
         while (true) {
             switch (self.current_token.kind) {
@@ -124,12 +123,15 @@ pub const Parser = struct {
                 },
                 TokenKind.QUOTE => {
                     self.next_token();
+                    const current_node_copy = self.current_node;
                     const quoted = try self.parse();
-                    const inner = try self.make_node(.{ .quoted = quoted });
-                    self.next_token();
-                    self.current_node.value.list.append(inner) catch {
-                        std.debug.panic("Failed to append quoted node to list", .{});
-                    };
+
+                    const inner = try self.make_node(.{ .quoted = quoted.value.list.items[0] });
+                    quoted.value.list.deinit();
+                    self.allocator.destroy(quoted);
+
+                    self.current_node = current_node_copy;
+                    try self.current_node.value.list.append(inner);
                 },
                 TokenKind.NUMBER => {
                     const value = std.fmt.parseFloat(f64, self.current_token.value) catch {
@@ -171,8 +173,7 @@ pub const Parser = struct {
     }
 
     fn make_node(self: *Parser, node: AstNodeValue) !*AstNode {
-        const new_node = try AstNode.new(node, self.allocator);
-        return new_node;
+        return try AstNode.new(node, self.allocator);
     }
 };
 
@@ -194,15 +195,20 @@ test "can parse a simple expression" {
     try testing.expect(node.value.list.items[2].value.number == 2);
 }
 
-// test "can parse a quoted expression" {
-//     var allocator = std.testing.allocator;
-//     var parser = Parser.init("'(1 2)", allocator);
-//     const node = try parser.parse();
-//     defer node.deinit(&allocator);
-//     try testing.expect(node.quoted.list.items.len == 2);
-//     try testing.expect(node.quoted.list.items[0].number == 1);
-//     try testing.expect(node.quoted.list.items[1].number == 2);
-// }
+test "can parse a quoted expression" {
+    const allocator = std.testing.allocator;
+    var parser = Parser.init("'(1 2)", allocator);
+    defer parser.deinit();
+    const output = try parser.parse();
+
+    const result = deref_list(output);
+
+    try testing.expect(result.value.quoted.value.list.items.len == 2);
+    try testing.expect(result.value.quoted.value.list.items[0].value == .number);
+    try testing.expect(result.value.quoted.value.list.items[1].value == .number);
+    try testing.expect(result.value.quoted.value.list.items[0].value.number == 1);
+    try testing.expect(result.value.quoted.value.list.items[1].value.number == 2);
+}
 
 test "can parse a string" {
     const allocator = std.testing.allocator;

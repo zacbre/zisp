@@ -65,7 +65,7 @@ pub const Machine = struct {
     }
 
     pub fn eval(self: *Machine, ctx: *Context, ast: *parser.AstNode) !*parser.AstNode {
-        switch (ast.value) {
+        return switch (ast.value) {
             .list => |list| {
                 if (list.items.len == 0) {
                     return builtin.getBuiltin(.nil);
@@ -87,11 +87,10 @@ pub const Machine = struct {
 
                         return output;
                     },
-                    else => {},
+                    else => {
+                        return try self.eval(ctx, first);
+                    },
                 }
-            },
-            .number => |_| {
-                return ast;
             },
             .symbol => {
                 if (ctx.get(ast.value.symbol)) |local| {
@@ -100,9 +99,13 @@ pub const Machine = struct {
 
                 return error.SymbolUndefined;
             },
-            else => {},
-        }
-        return ast;
+            .quoted => |quoted| {
+                return quoted;
+            },
+            else => {
+                return ast;
+            },
+        };
     }
 
     pub fn run(self: *Machine) !*parser.AstNode {
@@ -235,4 +238,21 @@ test "can evaluate statement with global and local variables" {
     const result = try run_and_get_output("(defvar x 5) (let ((y 10)) (+ x y))", std.testing.allocator);
     try testing.expect(result.value == .number);
     try testing.expect(result.value.number == 15);
+}
+
+test "don't evaluate quoted statement" {
+    var machine = Machine.init("('(+ 1 2))", std.testing.allocator);
+    defer machine.deinit();
+
+    const output = try machine.run_internal();
+    const result = deref_list(output);
+
+    try testing.expect(result.value == .list);
+    try testing.expect(result.value.list.items.len == 3);
+    try testing.expect(result.value.list.items[0].value == .symbol);
+    try testing.expect(std.mem.eql(u8, result.value.list.items[0].value.symbol, "+"));
+    try testing.expect(result.value.list.items[1].value == .number);
+    try testing.expect(result.value.list.items[1].value.number == 1);
+    try testing.expect(result.value.list.items[2].value == .number);
+    try testing.expect(result.value.list.items[2].value.number == 2);
 }
