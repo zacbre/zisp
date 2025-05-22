@@ -206,7 +206,7 @@ pub fn defvar(
 }
 
 pub fn let(self: *Machine, ctx: *Context, args: []const *parser.AstNode) BuiltinError!*parser.AstNode {
-    if (args.len != 2) {
+    if (args.len < 2) {
         return error.InvalidParameterCount;
     }
 
@@ -225,8 +225,11 @@ pub fn let(self: *Machine, ctx: *Context, args: []const *parser.AstNode) Builtin
         try new_ctx.push(name, value);
     }
 
-    const output = try self.eval(new_ctx, args[1]);
-    return output;
+    var last_result = GetBuiltIn(.nil);
+    for (args[1..]) |arg| {
+        last_result = try self.eval(new_ctx, arg);
+    }
+    return last_result;
 }
 
 pub fn print(self: *Machine, ctx: *Context, args: []const *parser.AstNode) BuiltinError!*parser.AstNode {

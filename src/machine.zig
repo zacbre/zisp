@@ -108,10 +108,10 @@ pub const Machine = struct {
         };
     }
 
-    pub fn run(self: *Machine) !*parser.AstNode {
-        const ast = self.parser.parse();
-        for (ast.List.items) |item| {
-            try self.eval(item);
+    pub fn run(self: *Machine) !void {
+        const ast = try self.parser.parse();
+        for (ast.value.list.items) |item| {
+            _ = try self.eval(self.context, item);
         }
     }
 
@@ -217,6 +217,12 @@ test "can evaluate let statement" {
 test "post let statement does not contain scoped variables" {
     const result = run_and_get_output("(let ((x 5))(+ x 10)) (+ x 10)", std.testing.allocator);
     try std.testing.expectError(builtin.BuiltinError.SymbolUndefined, result);
+}
+
+test "can run multiple evals in let" {
+    const result = try run_and_get_output("(let ((x 5)(y 10)) (+ x 10)(+ y 10))", std.testing.allocator);
+    try testing.expect(result.value == .number);
+    try testing.expect(result.value.number == 20);
 }
 
 test "redefining variables returns an error" {

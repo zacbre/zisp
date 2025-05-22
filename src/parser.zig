@@ -218,7 +218,6 @@ test "can parse a string" {
     const output = try parser.parse();
     const node = deref_list(output);
 
-    // get the first item from the list.
     try testing.expect(std.mem.eql(u8, node.value.string, "hello"));
 }
 
