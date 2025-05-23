@@ -99,20 +99,15 @@ pub const Machine = struct {
 
                 return error.SymbolUndefined;
             },
-            .quoted => |quoted| {
-                return quoted;
-            },
             else => {
                 return ast;
             },
         };
     }
 
-    pub fn run(self: *Machine) !void {
+    pub fn run(self: *Machine) !*parser.AstNode {
         const ast = try self.parser.parse();
-        for (ast.value.list.items) |item| {
-            _ = try self.eval(self.context, item);
-        }
+        return try self.eval(self.context, ast);
     }
 
     pub fn make_node(self: *Machine, node: parser.AstNodeValue) !*parser.AstNode {

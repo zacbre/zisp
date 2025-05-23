@@ -12,5 +12,6 @@ pub fn main() !void {
     defer allocator.free(file_contents);
     var interp = machine.Machine.init(file_contents, allocator);
     defer interp.deinit();
-    try interp.run();
+    const result = try interp.run();
+    std.debug.print("Result: {any}\n", .{result.value.symbol});
 }

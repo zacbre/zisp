@@ -15,7 +15,6 @@ pub const AstNodeKind = enum(u8) {
     list,
     string,
     boolean,
-    quoted,
     function,
 };
 
@@ -25,7 +24,6 @@ pub const AstNodeValue = union(AstNodeKind) {
     list: std.ArrayList(*AstNode),
     string: []const u8,
     boolean: bool,
-    quoted: *AstNode,
     function: BuiltinFn,
 };
 
@@ -45,9 +43,6 @@ pub const AstNode = struct {
                     node.deinit(allocator);
                 }
                 list.deinit();
-            },
-            .quoted => |quoted| {
-                quoted.deinit(allocator);
             },
             else => {},
         }
@@ -125,8 +120,11 @@ pub const Parser = struct {
                     self.next_token();
                     const current_node_copy = self.current_node;
                     const quoted = try self.parse();
+                    // we really should change this into a symbol called quote with args.
+                    const inner = try self.make_node(.{ .list = std.ArrayList(*AstNode).init(self.allocator) });
+                    try inner.value.list.append(try self.make_node(.{ .symbol = "quote" }));
+                    try inner.value.list.append(quoted.value.list.items[0]);
 
-                    const inner = try self.make_node(.{ .quoted = quoted.value.list.items[0] });
                     quoted.value.list.deinit();
                     self.allocator.destroy(quoted);
 
@@ -203,11 +201,9 @@ test "can parse a quoted expression" {
 
     const result = deref_list(output);
 
-    try testing.expect(result.value.quoted.value.list.items.len == 2);
-    try testing.expect(result.value.quoted.value.list.items[0].value == .number);
-    try testing.expect(result.value.quoted.value.list.items[1].value == .number);
-    try testing.expect(result.value.quoted.value.list.items[0].value.number == 1);
-    try testing.expect(result.value.quoted.value.list.items[1].value.number == 2);
+    try testing.expect(result.value.list.items.len == 2);
+    try testing.expect(std.mem.eql(u8, result.value.list.items[0].value.symbol, "quote"));
+    try testing.expect(result.value.list.items[1].value.list.items.len == 2);
 }
 
 test "can parse a string" {

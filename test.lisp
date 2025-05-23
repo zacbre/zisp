@@ -1,1 +1,1 @@
-(let ((x 10)(y 15)) (print y)(print x))
+(print '(+ 10 10))

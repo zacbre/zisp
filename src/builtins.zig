@@ -232,49 +232,73 @@ pub fn let(self: *Machine, ctx: *Context, args: []const *parser.AstNode) Builtin
     return last_result;
 }
 
+pub fn quote(
+    self: *Machine,
+    _: *Context,
+    args: []const *parser.AstNode,
+) BuiltinError!*parser.AstNode {
+    if (args.len != 1) {
+        return error.InvalidParameterCount;
+    }
+    if (args[0].value == .list) {
+        const new_list = try self.make_node(.{ .list = std.ArrayList(*parser.AstNode).init(self.allocator) });
+        for (args[0].value.list.items) |item| {
+            try new_list.value.list.append(item);
+        }
+        args[0].value.list.clearRetainingCapacity();
+
+        return new_list;
+    }
+    return args[0];
+}
+
 pub fn print(self: *Machine, ctx: *Context, args: []const *parser.AstNode) BuiltinError!*parser.AstNode {
-    return try print_internal(self, ctx, args, 0);
+    if (args.len == 0) {
+        return error.InvalidArgument;
+    }
+
+    for (args) |arg| {
+        const output = try self.eval(ctx, arg);
+        try print_internal(self, ctx, output);
+    }
+    std.debug.print("\n", .{});
+    return GetBuiltIn(.nil);
 }
 
 fn print_internal(
     self: *Machine,
     ctx: *Context,
-    args: []const *parser.AstNode,
-    level: usize,
-) BuiltinError!*parser.AstNode {
-    if (args.len == 0) {
-        return error.InvalidArgument;
+    arg: *parser.AstNode,
+) BuiltinError!void {
+    if (arg == GetBuiltIn(.nil)) {
+        std.debug.print("nil", .{});
+        return;
     }
-    if (level > 0) {
-        for (0..level) |_| {
-            std.debug.print("\t", .{});
-        }
+    switch (arg.value) {
+        .boolean => |b| {
+            std.debug.print("{any}", .{b});
+        },
+        .number => |num| {
+            std.debug.print("{d}", .{num});
+        },
+        .string => |str| {
+            std.debug.print("{s}", .{str});
+        },
+        .symbol => |symbol| {
+            std.debug.print("{s}", .{symbol});
+        },
+        .list => |list| {
+            std.debug.print("(", .{});
+            for (list.items, 0..) |item, i| {
+                try print_internal(self, ctx, item);
+                if (i != list.items.len - 1) {
+                    std.debug.print(" ", .{});
+                }
+            }
+            std.debug.print(")", .{});
+        },
+        else => {
+            std.debug.print("{?}", .{arg.value});
+        },
     }
-    for (args) |arg| {
-        const output = try self.eval(ctx, arg);
-        switch (output.value) {
-            .boolean => |b| {
-                std.debug.print("{any}", .{b});
-            },
-            .number => |num| {
-                std.debug.print("{d}", .{num});
-            },
-            .string => |str| {
-                std.debug.print("{s}", .{str});
-            },
-            .symbol => |symbol| {
-                std.debug.print("{s}", .{symbol});
-            },
-            .list => |list| {
-                std.debug.print("[", .{});
-                _ = try print_internal(self, ctx, list.items, level + 1);
-                std.debug.print("]", .{});
-            },
-            else => {
-                std.debug.print("{?}", .{output});
-            },
-        }
-    }
-    std.debug.print("\n", .{});
-    return GetBuiltIn(.nil);
 }
