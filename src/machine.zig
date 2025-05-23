@@ -107,22 +107,17 @@ pub const Machine = struct {
 
     pub fn run(self: *Machine) !*parser.AstNode {
         const ast = try self.parser.parse();
-        return try self.eval(self.context, ast);
+        var node = ast;
+        for (ast.value.list.items) |item| {
+            node = try self.eval(self.context, item);
+        }
+        return node;
     }
 
     pub fn make_node(self: *Machine, node: parser.AstNodeValue) !*parser.AstNode {
         const new_node = try parser.AstNode.new(node, self.allocator);
         try self.allocations.append(new_node);
         return new_node;
-    }
-
-    fn run_internal(self: *Machine) !*parser.AstNode {
-        const ast = try self.parser.parse();
-        var node = ast;
-        for (ast.value.list.items) |item| {
-            node = try self.eval(self.context, item);
-        }
-        return node;
     }
 };
 
@@ -141,7 +136,7 @@ fn run_and_get_output(
     var machine = Machine.init(input, allocator);
     defer machine.deinit();
 
-    const output = try machine.run_internal();
+    const output = try machine.run();
     const result = deref_node(output);
 
     return result;
@@ -245,8 +240,7 @@ test "don't evaluate quoted statement" {
     var machine = Machine.init("('(+ 1 2))", std.testing.allocator);
     defer machine.deinit();
 
-    const output = try machine.run_internal();
-    const result = deref_list(output);
+    const result = try machine.run_internal();
 
     try testing.expect(result.value == .list);
     try testing.expect(result.value.list.items.len == 3);

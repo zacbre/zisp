@@ -257,12 +257,13 @@ pub fn print(self: *Machine, ctx: *Context, args: []const *parser.AstNode) Built
         return error.InvalidArgument;
     }
 
+    var output: *parser.AstNode = undefined;
     for (args) |arg| {
-        const output = try self.eval(ctx, arg);
+        output = try self.eval(ctx, arg);
         try print_internal(self, ctx, output);
     }
     std.debug.print("\n", .{});
-    return GetBuiltIn(.nil);
+    return output;
 }
 
 fn print_internal(

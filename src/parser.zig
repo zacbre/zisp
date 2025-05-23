@@ -118,18 +118,14 @@ pub const Parser = struct {
                 },
                 TokenKind.QUOTE => {
                     self.next_token();
-                    const current_node_copy = self.current_node;
-                    const quoted = try self.parse();
-                    // we really should change this into a symbol called quote with args.
+
+                    try self.node_stack.append(self.current_node);
+
                     const inner = try self.make_node(.{ .list = std.ArrayList(*AstNode).init(self.allocator) });
                     try inner.value.list.append(try self.make_node(.{ .symbol = "quote" }));
-                    try inner.value.list.append(quoted.value.list.items[0]);
+                    self.current_node = inner;
 
-                    quoted.value.list.deinit();
-                    self.allocator.destroy(quoted);
-
-                    self.current_node = current_node_copy;
-                    try self.current_node.value.list.append(inner);
+                    continue;
                 },
                 TokenKind.NUMBER => {
                     const value = std.fmt.parseFloat(f64, self.current_token.value) catch {
@@ -162,6 +158,15 @@ pub const Parser = struct {
                 else => {
                     std.debug.panic("Unexpected token: {s}", .{self.current_token.value});
                 },
+            }
+
+            if (self.current_node.value.list.items.len > 0 and
+                self.current_node.value.list.items[0].value == .symbol and
+                std.mem.eql(u8, self.current_node.value.list.items[0].value.symbol, "quote"))
+            {
+                const complete = self.current_node;
+                self.current_node = self.node_stack.pop().?;
+                try self.current_node.value.list.append(complete);
             }
         }
     }

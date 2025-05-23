@@ -60,6 +60,8 @@ pub const builtin_map = v: {
     break :v arr;
 };
 
+//.print
+
 pub fn getBuiltin(tag: Builtin) *AstNode {
     return @constCast(builtin_map[@intFromEnum(tag)]);
 }
