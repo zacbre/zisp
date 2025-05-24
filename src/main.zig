@@ -1,7 +1,7 @@
 pub const root = @import("root");
 pub const machine = @import("machine.zig");
 const std = @import("std");
-const GetBuiltIn = @import("builtin.zig").getBuiltin;
+const GetBuiltIn = @import("builtin.zig").get_built_in;
 const parser = @import("parser.zig");
 
 pub fn main() !void {

@@ -3,10 +3,15 @@ const std = @import("std");
 const machine = @import("machine.zig");
 const Machine = machine.Machine;
 const Context = machine.Context;
-const BuiltinError = @import("builtin.zig").BuiltinError;
-const GetBuiltIn = @import("builtin.zig").getBuiltin;
+const builtin = @import("builtin.zig");
+const Builtin = builtin.Builtin;
+const BuiltinError = builtin.BuiltinError;
+const GetBuiltIn = builtin.get_built_in;
+const BoolToAst = builtin.bool_to_ast;
 
 pub const nil: void = {};
+pub const t: void = {};
+pub const f: void = {};
 
 pub fn @"+"(self: *Machine, ctx: *Context, args: []const *parser.AstNode) BuiltinError!*parser.AstNode {
     if (args.len == 0) {
@@ -108,7 +113,7 @@ pub fn @">"(self: *Machine, ctx: *Context, args: []const *parser.AstNode) Builti
             },
         }
     }
-    return try self.make_node(.{ .boolean = result });
+    return BoolToAst(result);
 }
 
 pub fn @">="(self: *Machine, ctx: *Context, args: []const *parser.AstNode) BuiltinError!*parser.AstNode {
@@ -127,7 +132,7 @@ pub fn @">="(self: *Machine, ctx: *Context, args: []const *parser.AstNode) Built
             },
         }
     }
-    return try self.make_node(.{ .boolean = result });
+    return BoolToAst(result);
 }
 
 pub fn @"<"(self: *Machine, ctx: *Context, args: []const *parser.AstNode) BuiltinError!*parser.AstNode {
@@ -146,7 +151,7 @@ pub fn @"<"(self: *Machine, ctx: *Context, args: []const *parser.AstNode) Builti
             },
         }
     }
-    return try self.make_node(.{ .boolean = result });
+    return BoolToAst(result);
 }
 
 pub fn @"<="(self: *Machine, ctx: *Context, args: []const *parser.AstNode) BuiltinError!*parser.AstNode {
@@ -165,7 +170,7 @@ pub fn @"<="(self: *Machine, ctx: *Context, args: []const *parser.AstNode) Built
             },
         }
     }
-    return try self.make_node(.{ .boolean = result });
+    return BoolToAst(result);
 }
 
 pub fn @"="(self: *Machine, ctx: *Context, args: []const *parser.AstNode) BuiltinError!*parser.AstNode {
@@ -184,7 +189,7 @@ pub fn @"="(self: *Machine, ctx: *Context, args: []const *parser.AstNode) Builti
             },
         }
     }
-    return try self.make_node(.{ .boolean = result });
+    return BoolToAst(result);
 }
 
 pub fn defvar(
@@ -276,9 +281,6 @@ fn print_internal(
         return;
     }
     switch (arg.value) {
-        .boolean => |b| {
-            std.debug.print("{any}", .{b});
-        },
         .number => |num| {
             std.debug.print("{d}", .{num});
         },

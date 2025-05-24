@@ -35,6 +35,14 @@ pub const Context = struct {
     pub fn get(self: *Context, key: []const u8) ?*parser.AstNode {
         return self.vars.get(key);
     }
+
+    pub fn populate_builtins(self: *Context) !void {
+        @setEvalBranchQuota(100_000);
+        inline for (std.meta.fields(builtins)) |f| {
+            const key = @field(builtins, f.name);
+            try self.push(key, builtin.get_built_in(key));
+        }
+    }
 };
 
 pub const Machine = struct {
@@ -43,14 +51,15 @@ pub const Machine = struct {
     allocations: std.ArrayList(*parser.AstNode),
     context: *Context,
 
-    pub fn init(input: []const u8, allocator: std.mem.Allocator) Machine {
+    pub fn init(input: []const u8, allocator: std.mem.Allocator) !Machine {
+        var context = try Context.init(allocator);
+        try context.populate_builtins();
+
         return Machine{
             .allocator = allocator,
             .parser = parser.Parser.init(input, allocator),
             .allocations = std.ArrayList(*parser.AstNode).init(allocator),
-            .context = Context.init(allocator) catch |err| {
-                std.debug.panic("Failed to initialize context: {}", .{err});
-            },
+            .context = context,
         };
     }
 
@@ -68,7 +77,7 @@ pub const Machine = struct {
         return switch (ast.value) {
             .list => |list| {
                 if (list.items.len == 0) {
-                    return builtin.getBuiltin(.nil);
+                    return builtin.get_built_in(.nil);
                 }
                 const first = list.items[0];
                 switch (first.value) {
@@ -76,7 +85,7 @@ pub const Machine = struct {
                         const output = self.eval(ctx, first) catch {
                             const e = std.meta.stringToEnum(builtin.Builtin, symbol);
                             if (e != null) {
-                                const builtin_fn = builtin.getBuiltin(e.?).value.function;
+                                const builtin_fn = builtin.get_built_in(e.?).value.function;
                                 const result = try builtin_fn(self, ctx, list.items[1..]);
                                 return result;
                             } else {
@@ -133,7 +142,7 @@ fn run_and_get_output(
     input: []const u8,
     allocator: std.mem.Allocator,
 ) !parser.AstNode {
-    var machine = Machine.init(input, allocator);
+    var machine = try Machine.init(input, allocator);
     defer machine.deinit();
 
     const output = try machine.run();
@@ -237,10 +246,10 @@ test "can evaluate statement with global and local variables" {
 }
 
 test "don't evaluate quoted statement" {
-    var machine = Machine.init("('(+ 1 2))", std.testing.allocator);
+    var machine = try Machine.init("('(+ 1 2))", std.testing.allocator);
     defer machine.deinit();
 
-    const result = try machine.run_internal();
+    const result = try machine.run();
 
     try testing.expect(result.value == .list);
     try testing.expect(result.value.list.items.len == 3);

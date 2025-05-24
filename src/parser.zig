@@ -14,7 +14,6 @@ pub const AstNodeKind = enum(u8) {
     number,
     list,
     string,
-    boolean,
     function,
 };
 
@@ -23,7 +22,6 @@ pub const AstNodeValue = union(AstNodeKind) {
     number: f64,
     list: std.ArrayList(*AstNode),
     string: []const u8,
-    boolean: bool,
     function: BuiltinFn,
 };
 
@@ -50,7 +48,7 @@ pub const AstNode = struct {
     }
 
     pub fn isBuiltin(self: *@This(), tag: builtin.Builtin) bool {
-        const bin = builtin.getBuiltin(tag);
+        const bin = builtin.get_built_in(tag);
         if (self == bin) {
             return true;
         }
@@ -80,7 +78,7 @@ pub const Parser = struct {
             .lexer = Lexer.init(input),
             .allocator = allocator,
             .current_token = Token{ .kind = TokenKind.EOF, .value = "" },
-            .current_node = builtin.getBuiltin(.nil),
+            .current_node = builtin.get_built_in(.nil),
             .node_stack = std.ArrayList(*AstNode).init(allocator),
         };
 
@@ -128,9 +126,7 @@ pub const Parser = struct {
                     continue;
                 },
                 TokenKind.NUMBER => {
-                    const value = std.fmt.parseFloat(f64, self.current_token.value) catch {
-                        std.debug.panic("Failed to parse float: {d}", .{self.current_token.value});
-                    };
+                    const value = try std.fmt.parseFloat(f64, self.current_token.value);
                     self.next_token();
                     try self.current_node.value.list.append(try self.make_node(.{ .number = value }));
                 },
@@ -144,11 +140,6 @@ pub const Parser = struct {
                     self.next_token();
                     try self.current_node.value.list.append(try self.make_node(.{ .string = value }));
                 },
-                TokenKind.BOOLEAN => {
-                    const value = if (std.mem.eql(u8, self.current_token.value, "#t")) true else false;
-                    self.next_token();
-                    try self.current_node.value.list.append(try self.make_node(.{ .boolean = value }));
-                },
                 TokenKind.EOF => {
                     if (self.node_stack.items.len > 0) {
                         std.debug.panic("Unexpected end of input", .{});
@@ -156,7 +147,7 @@ pub const Parser = struct {
                     return self.current_node;
                 },
                 else => {
-                    std.debug.panic("Unexpected token: {s}", .{self.current_token.value});
+                    std.debug.panic("Unexpected token: {any}", .{self.current_token.value});
                 },
             }
 
@@ -224,19 +215,19 @@ test "can parse a string" {
 
 test "can parse a boolean" {
     const allocator = std.testing.allocator;
-    var parser = Parser.init("#t", allocator);
+    var parser = Parser.init("t", allocator);
 
     const output = try parser.parse();
     const node = deref_list(output);
 
-    try testing.expect(node.value.boolean == true);
+    try testing.expect(std.mem.eql(u8, node.value.symbol, "t"));
     parser.deinit();
 
-    parser = Parser.init("#f", allocator);
+    parser = Parser.init("f", allocator);
     const output2 = try parser.parse();
     const node2 = deref_list(output2);
 
-    try testing.expect(node2.value.boolean == false);
+    try testing.expect(std.mem.eql(u8, node2.value.symbol, "f"));
     parser.deinit();
 }
 test "can parse a number" {
@@ -259,7 +250,7 @@ test "can parse an identifier" {
 
 test "can parse a list with mixed types" {
     const allocator = std.testing.allocator;
-    var parser = Parser.init("(foo 42 123.456 \"bar\" #t)", allocator);
+    var parser = Parser.init("(foo 42 123.456 \"bar\" t)", allocator);
     defer parser.deinit();
     const output = try parser.parse();
 
@@ -269,7 +260,7 @@ test "can parse a list with mixed types" {
     try testing.expect(node.value.list.items[1].value.number == 42);
     try testing.expect(std.math.approxEqAbs(f64, node.value.list.items[2].value.number, 123.456, 0.0001));
     try testing.expect(std.mem.eql(u8, node.value.list.items[3].value.string, "bar"));
-    try testing.expect(node.value.list.items[4].value.boolean == true);
+    try testing.expect(std.mem.eql(u8, node.value.list.items[4].value.symbol, "t"));
 }
 
 test "can parse nested expression" {

@@ -62,6 +62,29 @@ pub const builtin_map = v: {
 
 //.print
 
-pub fn getBuiltin(tag: Builtin) *AstNode {
+pub fn get_built_in(tag: Builtin) *AstNode {
     return @constCast(builtin_map[@intFromEnum(tag)]);
+}
+
+pub fn bool_to_ast(value: bool) *AstNode {
+    return if (value)
+        get_built_in(.t)
+    else
+        get_built_in(.f);
+}
+
+pub fn ast_to_bool(node: *AstNode) bool {
+    return node == get_built_in(.t);
+}
+
+test "can convert bool to ast and back" {
+    const true_ast = bool_to_ast(true);
+    const false_ast = bool_to_ast(false);
+    const true_bool = ast_to_bool(true_ast);
+    const false_bool = ast_to_bool(false_ast);
+
+    try std.testing.expect(true_ast == get_built_in(.t));
+    try std.testing.expect(false_ast == get_built_in(.f));
+    try std.testing.expect(true_bool == true);
+    try std.testing.expect(false_bool == false);
 }

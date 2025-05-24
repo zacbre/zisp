@@ -87,25 +87,6 @@ pub const Lexer = struct {
                 }
                 self.current = Token{ .kind = TokenKind.STRING, .value = self.input[start + 1 .. self.pos - 1] };
             },
-            '#' => {
-                // parse a boolean literal
-                if (self.pos + 1 < self.input.len) {
-                    const next_char = self.input[self.pos + 1];
-                    if (next_char == 't') {
-                        self.current = Token{ .kind = TokenKind.BOOLEAN, .value = "#t" };
-                        self.pos += 2;
-                    } else if (next_char == 'f') {
-                        self.current = Token{ .kind = TokenKind.BOOLEAN, .value = "#f" };
-                        self.pos += 2;
-                    } else {
-                        self.current = Token{ .kind = TokenKind.ILLEGAL, .value = "#" };
-                        self.pos += 1;
-                    }
-                } else {
-                    self.current = Token{ .kind = TokenKind.ILLEGAL, .value = "#" };
-                    self.pos += 1;
-                }
-            },
             else => {
                 if (ch >= '0' and ch <= '9' or ch == '.') {
                     // parse a number
@@ -316,11 +297,4 @@ test "can parse a non evaled expression" {
     const token6 = lexer.next_token();
     try testing.expect(token6.kind == TokenKind.RPAREN);
     try testing.expect(std.mem.eql(u8, token6.value, ")"));
-}
-
-test "can parse a boolean" {
-    var lexer = Lexer.init("#t");
-    const token = lexer.next_token();
-    try testing.expect(token.kind == TokenKind.BOOLEAN);
-    try testing.expect(std.mem.eql(u8, token.value, "#t"));
 }
