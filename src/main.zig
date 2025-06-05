@@ -12,7 +12,7 @@ pub fn main() !void {
     const file_size = try file.getEndPos();
     const file_contents = try file.readToEndAlloc(allocator, file_size);
     defer allocator.free(file_contents);
-    var interp = machine.Machine.init(file_contents, allocator);
+    var interp = try machine.Machine.init(file_contents, allocator);
     defer interp.deinit();
     const result = try interp.run();
     std.debug.print("Result: ", .{});

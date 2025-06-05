@@ -38,8 +38,6 @@ pub const Lexer = struct {
     }
 
     pub fn next_token(self: *Lexer) Token {
-        // get the next token
-        // first eat whitespace.
         self.skip_whitespace();
         if (self.pos >= self.input.len) {
             return Token{ .kind = TokenKind.EOF, .value = "" };
@@ -47,7 +45,6 @@ pub const Lexer = struct {
         const ch = self.input[self.pos];
         switch (ch) {
             '\'' => {
-                // call next_token() again to get the output, then add that to the token?
                 self.pos += 1;
                 self.current = Token{ .kind = TokenKind.QUOTE, .value = "'" };
             },
@@ -72,7 +69,34 @@ pub const Lexer = struct {
                 self.pos += 1;
             },
             '/' => {
-                self.current = Token{ .kind = TokenKind.IDENTIFIER, .value = "/" };
+                if (self.pos + 1 < self.input.len and self.input[self.pos + 1] == '=') {
+                    self.current = Token{ .kind = TokenKind.IDENTIFIER, .value = "/=" };
+                    self.pos += 2;
+                } else {
+                    self.current = Token{ .kind = TokenKind.IDENTIFIER, .value = "/" };
+                    self.pos += 1;
+                }
+            },
+            '>' => {
+                if (self.pos + 1 < self.input.len and self.input[self.pos + 1] == '=') {
+                    self.current = Token{ .kind = TokenKind.IDENTIFIER, .value = ">=" };
+                    self.pos += 2;
+                } else {
+                    self.current = Token{ .kind = TokenKind.IDENTIFIER, .value = ">" };
+                    self.pos += 1;
+                }
+            },
+            '<' => {
+                if (self.pos + 1 < self.input.len and self.input[self.pos + 1] == '=') {
+                    self.current = Token{ .kind = TokenKind.IDENTIFIER, .value = "<=" };
+                    self.pos += 2;
+                } else {
+                    self.current = Token{ .kind = TokenKind.IDENTIFIER, .value = "<" };
+                    self.pos += 1;
+                }
+            },
+            '=' => {
+                self.current = Token{ .kind = TokenKind.IDENTIFIER, .value = "=" };
                 self.pos += 1;
             },
             '"' => {

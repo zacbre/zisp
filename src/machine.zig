@@ -38,9 +38,9 @@ pub const Context = struct {
 
     pub fn populate_builtins(self: *Context) !void {
         @setEvalBranchQuota(100_000);
-        inline for (std.meta.fields(builtins)) |f| {
-            const key = @field(builtins, f.name);
-            try self.push(key, builtin.get_built_in(key));
+        inline for (std.meta.fields(builtin.Builtin)) |f| {
+            const key = @field(builtin.Builtin, f.name);
+            try self.push(f.name, builtin.get_built_in(key));
         }
     }
 };
@@ -83,16 +83,13 @@ pub const Machine = struct {
                 switch (first.value) {
                     .symbol => |symbol| {
                         const output = self.eval(ctx, first) catch {
-                            const e = std.meta.stringToEnum(builtin.Builtin, symbol);
-                            if (e != null) {
-                                const builtin_fn = builtin.get_built_in(e.?).value.function;
-                                const result = try builtin_fn(self, ctx, list.items[1..]);
-                                return result;
-                            } else {
-                                // Handle the case where the symbol is not a builtin
-                                std.debug.panic("Unknown symbol: {s}\n", .{symbol});
-                            }
+                            std.debug.panic("Unknown symbol: {s}\n", .{symbol});
                         };
+
+                        if (output.value == .function) {
+                            const builtin_fn = output.value.function;
+                            return try builtin_fn(self, ctx, list.items[1..]);
+                        }
 
                         return output;
                     },
@@ -177,6 +174,43 @@ test "evaluate simple division" {
 
     try testing.expect(result.value == .number);
     try testing.expect(result.value.number == 3);
+}
+
+test "evaluate simple greater than" {
+    var result = try run_and_get_output("(> 5 2)", std.testing.allocator);
+
+    try testing.expect(builtin.ast_to_bool(&result) == true);
+}
+test "evaluate simple less than" {
+    var result = try run_and_get_output("(< 2 5)", std.testing.allocator);
+
+    try testing.expect(builtin.ast_to_bool(&result) == true);
+}
+test "evaluate simple equality" {
+    var result = try run_and_get_output("(= 5 5)", std.testing.allocator);
+
+    try testing.expect(builtin.ast_to_bool(&result) == true);
+}
+test "evaluate simple inequality" {
+    var result = try run_and_get_output("(/= 5 2)", std.testing.allocator);
+
+    try testing.expect(builtin.ast_to_bool(&result) == true);
+}
+
+test "evaluate simple not" {
+    var result = try run_and_get_output("(not t)", std.testing.allocator);
+
+    try testing.expect(builtin.ast_to_bool(&result) == false);
+}
+test "evaluate simple and" {
+    var result = try run_and_get_output("(and t t)", std.testing.allocator);
+
+    try testing.expect(builtin.ast_to_bool(&result) == true);
+}
+test "evaluate simple or" {
+    var result = try run_and_get_output("(or nil t)", std.testing.allocator);
+
+    try testing.expect(builtin.ast_to_bool(&result) == true);
 }
 
 test "evaluate nested expression" {

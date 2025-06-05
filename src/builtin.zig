@@ -70,21 +70,21 @@ pub fn bool_to_ast(value: bool) *AstNode {
     return if (value)
         get_built_in(.t)
     else
-        get_built_in(.f);
+        get_built_in(.nil);
 }
 
 pub fn ast_to_bool(node: *AstNode) bool {
-    return node == get_built_in(.t);
+    return std.meta.eql(node.value, get_built_in(.t).value);
 }
 
 test "can convert bool to ast and back" {
     const true_ast = bool_to_ast(true);
     const false_ast = bool_to_ast(false);
-    const true_bool = ast_to_bool(true_ast);
-    const false_bool = ast_to_bool(false_ast);
+    const true_bool = ast_to_bool(get_built_in(.t));
+    const false_bool = ast_to_bool(get_built_in(.nil));
 
     try std.testing.expect(true_ast == get_built_in(.t));
-    try std.testing.expect(false_ast == get_built_in(.f));
+    try std.testing.expect(false_ast == get_built_in(.nil));
     try std.testing.expect(true_bool == true);
     try std.testing.expect(false_bool == false);
 }

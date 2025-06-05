@@ -8,14 +8,14 @@ const Builtin = builtin.Builtin;
 const BuiltinError = builtin.BuiltinError;
 const GetBuiltIn = builtin.get_built_in;
 const BoolToAst = builtin.bool_to_ast;
+const AstToBool = builtin.ast_to_bool;
 
 pub const nil: void = {};
 pub const t: void = {};
-pub const f: void = {};
 
 pub fn @"+"(self: *Machine, ctx: *Context, args: []const *parser.AstNode) BuiltinError!*parser.AstNode {
     if (args.len == 0) {
-        return error.InvalidArgument;
+        return error.InvalidParameterCount;
     }
     var sum: f64 = 0;
     for (args) |arg| {
@@ -35,7 +35,7 @@ pub fn @"+"(self: *Machine, ctx: *Context, args: []const *parser.AstNode) Builti
 
 pub fn @"-"(self: *Machine, ctx: *Context, args: []const *parser.AstNode) BuiltinError!*parser.AstNode {
     if (args.len == 0) {
-        return error.InvalidArgument;
+        return error.InvalidParameterCount;
     }
     var result: f64 = 0;
     for (args, 0..) |arg, i| {
@@ -58,7 +58,7 @@ pub fn @"-"(self: *Machine, ctx: *Context, args: []const *parser.AstNode) Builti
 
 pub fn @"*"(self: *Machine, ctx: *Context, args: []const *parser.AstNode) BuiltinError!*parser.AstNode {
     if (args.len == 0) {
-        return error.InvalidArgument;
+        return error.InvalidParameterCount;
     }
     var product: f64 = 1;
     for (args) |arg| {
@@ -77,7 +77,7 @@ pub fn @"*"(self: *Machine, ctx: *Context, args: []const *parser.AstNode) Builti
 
 pub fn @"/"(self: *Machine, ctx: *Context, args: []const *parser.AstNode) BuiltinError!*parser.AstNode {
     if (args.len == 0) {
-        return error.InvalidArgument;
+        return error.InvalidParameterCount;
     }
     var result: f64 = 1;
     for (args, 0..) |arg, index| {
@@ -97,99 +97,109 @@ pub fn @"/"(self: *Machine, ctx: *Context, args: []const *parser.AstNode) Builti
     }
     return try self.make_node(.{ .number = result });
 }
+
 pub fn @">"(self: *Machine, ctx: *Context, args: []const *parser.AstNode) BuiltinError!*parser.AstNode {
-    if (args.len == 0) {
-        return error.InvalidArgument;
-    }
-    var result: bool = true;
-    for (args) |arg| {
-        const output = try self.eval(ctx, arg);
-        switch (output.value) {
-            .number => |num| {
-                result = result and num > 0;
-            },
-            else => {
-                return error.InvalidType;
-            },
+    const compare = struct {
+        pub fn greater(x: f64, y: f64) bool {
+            return x > y;
         }
-    }
-    return BoolToAst(result);
+    };
+    return comparator(self, ctx, args, compare.greater);
 }
 
 pub fn @">="(self: *Machine, ctx: *Context, args: []const *parser.AstNode) BuiltinError!*parser.AstNode {
-    if (args.len == 0) {
-        return error.InvalidArgument;
-    }
-    var result: bool = true;
-    for (args) |arg| {
-        const output = try self.eval(ctx, arg);
-        switch (output.value) {
-            .number => |num| {
-                result = result and num >= 0;
-            },
-            else => {
-                return error.InvalidType;
-            },
+    const compare = struct {
+        pub fn greater_equal(x: f64, y: f64) bool {
+            return x >= y;
         }
-    }
-    return BoolToAst(result);
+    };
+    return comparator(self, ctx, args, compare.greater_equal);
 }
 
 pub fn @"<"(self: *Machine, ctx: *Context, args: []const *parser.AstNode) BuiltinError!*parser.AstNode {
-    if (args.len == 0) {
-        return error.InvalidArgument;
-    }
-    var result: bool = true;
-    for (args) |arg| {
-        const output = try self.eval(ctx, arg);
-        switch (output.value) {
-            .number => |num| {
-                result = result and num < 0;
-            },
-            else => {
-                return error.InvalidType;
-            },
+    const compare = struct {
+        pub fn less(x: f64, y: f64) bool {
+            return x < y;
         }
-    }
-    return BoolToAst(result);
+    };
+    return comparator(self, ctx, args, compare.less);
 }
 
 pub fn @"<="(self: *Machine, ctx: *Context, args: []const *parser.AstNode) BuiltinError!*parser.AstNode {
-    if (args.len == 0) {
-        return error.InvalidArgument;
-    }
-    var result: bool = true;
-    for (args) |arg| {
-        const output = try self.eval(ctx, arg);
-        switch (output.value) {
-            .number => |num| {
-                result = result and num <= 0;
-            },
-            else => {
-                return error.InvalidType;
-            },
+    const compare = struct {
+        pub fn less_equal(x: f64, y: f64) bool {
+            return x <= y;
         }
-    }
-    return BoolToAst(result);
+    };
+    return comparator(self, ctx, args, compare.less_equal);
 }
 
 pub fn @"="(self: *Machine, ctx: *Context, args: []const *parser.AstNode) BuiltinError!*parser.AstNode {
+    const compare = struct {
+        pub fn equal(x: f64, y: f64) bool {
+            return x == y;
+        }
+    };
+    return comparator(self, ctx, args, compare.equal);
+}
+
+pub fn @"/="(self: *Machine, ctx: *Context, args: []const *parser.AstNode) BuiltinError!*parser.AstNode {
+    const compare = struct {
+        pub fn not_equal(x: f64, y: f64) bool {
+            return x != y;
+        }
+    };
+    return comparator(self, ctx, args, compare.not_equal);
+}
+
+pub fn @"and"(self: *Machine, ctx: *Context, args: []const *parser.AstNode) BuiltinError!*parser.AstNode {
     if (args.len == 0) {
-        return error.InvalidArgument;
+        return error.InvalidParameterCount;
     }
-    var result: bool = false;
     for (args) |arg| {
         const output = try self.eval(ctx, arg);
-        switch (output.value) {
-            .number => |num| {
-                result = result and num == 0;
-            },
-            else => {
-                return error.InvalidType;
-            },
+        if (!AstToBool(output)) {
+            return GetBuiltIn(.nil);
         }
     }
-    return BoolToAst(result);
+    return GetBuiltIn(.t);
+}
+
+pub fn @"or"(self: *Machine, ctx: *Context, args: []const *parser.AstNode) BuiltinError!*parser.AstNode {
+    if (args.len == 0) {
+        return error.InvalidParameterCount;
+    }
+    for (args) |arg| {
+        const output = try self.eval(ctx, arg);
+        if (AstToBool(output) != false) {
+            return output;
+        }
+    }
+    return GetBuiltIn(.nil);
+}
+
+pub fn not(self: *Machine, ctx: *Context, args: []const *parser.AstNode) BuiltinError!*parser.AstNode {
+    if (args.len != 1) {
+        return error.InvalidParameterCount;
+    }
+    const output = try self.eval(ctx, args[0]);
+    if (!AstToBool(output)) {
+        return GetBuiltIn(.t);
+    } else {
+        return GetBuiltIn(.nil);
+    }
+}
+
+fn comparator(self: *Machine, ctx: *Context, args: []const *parser.AstNode, f: (fn (f64, f64) bool)) BuiltinError!*parser.AstNode {
+    if (args.len == 0 or args.len > 2) {
+        return error.InvalidParameterCount;
+    }
+    const a1 = try self.eval(ctx, args[0]);
+    const a2 = try self.eval(ctx, args[1]);
+    if (a1.value != .number or a2.value != .number) {
+        return error.InvalidType;
+    }
+    return BoolToAst(f(a1.value.number, a2.value.number));
 }
 
 pub fn defvar(
